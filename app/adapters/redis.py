@@ -1,7 +1,7 @@
 import aioredis
 from typing import Union
 from aioredis import Redis
-from app.config.adapters import adapters
+from app.config import adapters
 
 
 class RedisClient:
