@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  fastapi_server:
+    container_name: fastapi_server
+    build: ./
+    restart: always
+    command: "sh -c 'alembic upgrade head && uvicorn app.main:app --reload --workers 1 --host 0.0.0.0 --port 8000'"
+    volumes:
+      - ./app:/code/app
+    expose:
+      - "8000"
+    env_file: ".env"
+    depends_on:
+      - database
+      
+  redis_server:
+    container_name: redis_server
+    image: "redis:alpine"
+    restart: always
+    expose:
+      - "6379"
+    env_file: .env
+    
