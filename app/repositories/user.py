@@ -11,24 +11,21 @@ class UserRepository:
     @staticmethod
     async def create(data: UserCreate):
         # create user data
-        async for session in postgresql.getSession():
-            session
+        session = await postgresql.getSession()
         await session.add(User(**data.dict()))
         # return a value?
 
     @staticmethod
     async def get_by_id(id: UUID):
         # retrieve user data by id
-        async for session in postgresql.getSession():
-            session
+        session = await postgresql.getSession()
         query = select(User).where(User.id == id)
         result = (await session.execute(query)).scalar_one_or_none()
         return result
 
     @staticmethod
     async def update(id: UUID, data: UserUpdate):
-        async for session in postgresql.getSession():
-            session
+        session = await postgresql.getSession()
         # update user data
         query = (
             update(User)
@@ -42,8 +39,7 @@ class UserRepository:
     @staticmethod
     async def delete(id: UUID):
         # delete user data by id
-        async for session in postgresql.getSession():
-            session
+        session = await postgresql.getSession()
         query = delete(User).where(User.id == id)
         await session.execute(query)
         # return a value?
@@ -56,9 +52,7 @@ class UserRepository:
         sort: str = None,
         filter: str = None,
     ):
-        async for session in postgresql.getSession():
-            session
-
+        session = await postgresql.getSession()
         query = select(from_obj=User, columns="*")
 
         # select columns dynamically

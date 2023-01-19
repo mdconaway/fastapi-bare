@@ -39,7 +39,7 @@ class PostgresqlAdapter:
     # transactions, or rolling them back. It will happen here after
     # the yielded context cedes control of the event loop back to
     # the adapter. If the database explodes, the rollback happens.
-    async def getSession(self) -> AsyncGenerator[AsyncSession, None]:
+    async def _getSession(self) -> AsyncGenerator[AsyncSession, None]:
         async with self.sessionLocal() as session:
             try:
                 yield session
@@ -51,9 +51,14 @@ class PostgresqlAdapter:
             finally:
                 await session.close()
 
-    async def addPostgresqlExtension(self) -> None:
-        async for session in self.getSession():
+    # streamlines external calls to getSession to allow simple await
+    async def getSession(self) -> Union[AsyncSession, None]:
+        async for session in self._getSession():
             session
+        return session
+
+    async def addPostgresqlExtension(self) -> None:
+        session = await self.getSession()
         query = text("CREATE EXTENSION IF NOT EXISTS pg_trgm")
         return await session.execute(query)
 
