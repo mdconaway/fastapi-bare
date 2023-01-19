@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from app.config import adapters
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlmodel import text
 
 
 class PostgresqlAdapter:
@@ -49,6 +50,12 @@ class PostgresqlAdapter:
                     raise
             finally:
                 await session.close()
+
+    async def addPostgresqlExtension(self) -> None:
+        async for session in self.getSession():
+            session
+        query = text("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        return await session.execute(query)
 
 
 postgresql = PostgresqlAdapter()
