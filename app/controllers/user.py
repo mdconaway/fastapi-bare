@@ -1,38 +1,24 @@
-# from fastapi_crudrouter import SQLAlchemyCRUDRouter
-# from app.utils.asynccrudrouter import AsyncSQLAlchemyCRUDRouter
-# from app.models.user import User, UserCreate, UserUpdate
-# from app.adapters import postgresql
-# """
-# It calls it a router... but its more like a controller
-# """
-# user = AsyncSQLAlchemyCRUDRouter(
-#    schema=User,
-#    create_schema=UserCreate,
-#    update_schema=UserUpdate,
-#    db_model=User,
-#    db=postgresql.getSession,
-# )
-
 from fastapi import APIRouter, Path, Query
 from app.utils.uuid import UUID
 from app.repositories.user import UserRepository
-from app.models.user import UserCreate, UserUpdate, ResponseSchema
+from app.models.user import UserCreate, UserUpdate
+from app.schemas.response import ResponseSchema, PageResponse
 
 controller = APIRouter(prefix="/user", tags=["user"])
 
 
 @controller.post("", response_model=ResponseSchema, response_model_exclude_none=True)
-async def create(create_form: UserCreate):
-    await UserRepository.create(create_form)
-    return ResponseSchema(detail="Successfully created data !")
+async def create(data: UserCreate):
+    await UserRepository.create(data=data)
+    return ResponseSchema(message="Successfully created data !")
 
 
 @controller.patch(
     "/{id}", response_model=ResponseSchema, response_model_exclude_none=True
 )
-async def update(id: UUID = Path(..., alias="id"), *, update_form: UserUpdate):
-    await UserRepository.update(id, update_form)
-    return ResponseSchema(detail="Successfully updated data !")
+async def update(id: UUID = Path(..., alias="id"), *, data: UserUpdate):
+    await UserRepository.update(id=id, data=data)
+    return ResponseSchema(message="Successfully updated data !")
 
 
 @controller.delete(
@@ -41,21 +27,19 @@ async def update(id: UUID = Path(..., alias="id"), *, update_form: UserUpdate):
 async def delete(
     id: UUID = Path(..., alias="id"),
 ):
-    await UserRepository.delete(id)
-    return ResponseSchema(detail="Successfully deleted data !")
+    await UserRepository.delete(id=id)
+    return ResponseSchema(message="Successfully deleted data !")
 
 
 @controller.get(
     "/{id}", response_model=ResponseSchema, response_model_exclude_none=True
 )
 async def get_by_id(id: UUID = Path(..., alias="id")):
-    result = await UserRepository.get_by_id(id)
-    return ResponseSchema(
-        detail="Successfully fetch person data by id !", result=result
-    )
+    data = await UserRepository.get_by_id(id=id)
+    return ResponseSchema(message="Successfully fetch data by id !", data=data)
 
 
-@controller.get("", response_model=ResponseSchema, response_model_exclude_none=True)
+@controller.get("", response_model=PageResponse, response_model_exclude_none=True)
 async def get_all(
     page: int = 1,
     limit: int = 10,
@@ -63,7 +47,6 @@ async def get_all(
     sort: str = Query(None, alias="sort"),
     filter: str = Query(None, alias="filter"),
 ):
-    result = await UserRepository.get_all(page, limit, columns, sort, filter)
-    return ResponseSchema(
-        detail="Successfully fetch person data by id !", result=result
+    return await UserRepository.get_all(
+        page=page, limit=limit, columns=columns, sort=sort, filter=filter
     )

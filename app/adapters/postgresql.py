@@ -4,44 +4,8 @@ from app.config import adapters
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-"""
-Something about this logic... seems like the session might die
-"""
 
-
-class AsyncDatabaseSession:
-    def __init__(self):
-        self.engine = create_async_engine(
-            adapters.ASYNC_DATABASE_URI,
-            echo=True,
-            future=True,
-            pool_size=adapters.POOL_SIZE,
-            max_overflow=adapters.MAX_OVERFLOW,
-        )
-        self.session = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=self.engine,
-            class_=AsyncSession,
-            expire_on_commit=False,
-        )()
-
-    def __getattr__(self, name):
-        return getattr(self.session, name)
-
-    async def commitOrRollback(self):
-        try:
-            await self.commit()
-        except Exception:
-            await self.rollback()
-            raise
-
-
-postgresql = AsyncDatabaseSession()
-
-"""
 class PostgresqlAdapter:
-    connect_args: dict[str, bool] = {"check_same_thread": False}
     engine: Union[AsyncEngine, None] = None
     sessionLocal = None
 
@@ -56,11 +20,24 @@ class PostgresqlAdapter:
         self.sessionLocal = sessionmaker(
             autocommit=False,
             autoflush=False,
+            future=True,
             bind=self.engine,
             class_=AsyncSession,
             expire_on_commit=False,
-        )()
+        )
 
+    # Since this returns an async generator, to use it elsewhere, it
+    # should be invoked using the following syntax.
+    #
+    # async for session in postgresql.getSession(): session
+    #
+    # which will iterate through the generator context and yield the
+    # product into a local variable named session.
+    # Coding this method in this way also means classes interacting
+    # with the adapter dont have to handle commiting thier
+    # transactions, or rolling them back. It will happen here after
+    # the yielded context cedes control of the event loop back to
+    # the adapter. If the database explodes, the rollback happens.
     async def getSession(self) -> AsyncGenerator[AsyncSession, None]:
         async with self.sessionLocal() as session:
             try:
@@ -75,4 +52,3 @@ class PostgresqlAdapter:
 
 
 postgresql = PostgresqlAdapter()
-"""
