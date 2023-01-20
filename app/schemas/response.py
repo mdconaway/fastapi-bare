@@ -12,7 +12,7 @@ class MetaObject(GenericModel, Generic[T]):
     page_number: int
     page_size: int
     total_pages: int
-    total_record: int
+    total_records: int
 
 
 class PageResponse(GenericModel, Generic[T]):

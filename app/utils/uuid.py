@@ -1,10 +1,9 @@
-r"""UUID draft version objects (universally unique identifiers).
-This module provides the functions uuid6() and uuid7() for
-generating version 6 and 7 UUIDs as specified in
-https://github.com/uuid6/uuid6-ietf-draft.
-
-Repo: https://github.com/oittaa/uuid6-python
-"""
+# UUID draft version objects (universally unique identifiers).
+# This module provides the functions uuid6() and uuid7() for
+# generating version 6 and 7 UUIDs as specified in
+# https://github.com/uuid6/uuid6-ietf-draft.
+#
+# Repo: https://github.com/oittaa/uuid6-python
 
 import secrets
 import time
@@ -13,8 +12,7 @@ from typing import Tuple
 
 
 class UUID(uuid.UUID):
-    r"""UUID draft version objects"""
-
+    # UUID draft version objects
     def __init__(
         self,
         hex: str = None,
@@ -26,8 +24,7 @@ class UUID(uuid.UUID):
         *,
         is_safe=uuid.SafeUUID.unknown,
     ) -> None:
-        r"""Create a UUID."""
-
+        # Create a UUID.
         if int is None or [hex, bytes, bytes_le, fields].count(None) != 4:
             super().__init__(
                 hex=hex,
@@ -81,12 +78,12 @@ _last_v7_timestamp = None
 
 
 def uuid6(clock_seq: int = None) -> UUID:
-    r"""UUID version 6 is a field-compatible version of UUIDv1, reordered for
-    improved DB locality.  It is expected that UUIDv6 will primarily be
-    used in contexts where there are existing v1 UUIDs.  Systems that do
-    not involve legacy UUIDv1 SHOULD consider using UUIDv7 instead.
-    If 'clock_seq' is given, it is used as the sequence number;
-    otherwise a random 14-bit sequence number is chosen."""
+    # UUID version 6 is a field-compatible version of UUIDv1, reordered for
+    # improved DB locality.  It is expected that UUIDv6 will primarily be
+    # used in contexts where there are existing v1 UUIDs.  Systems that do
+    # not involve legacy UUIDv1 SHOULD consider using UUIDv7 instead.
+    # If 'clock_seq' is given, it is used as the sequence number;
+    # otherwise a random 14-bit sequence number is chosen.
 
     global _last_v6_timestamp
 
@@ -110,13 +107,13 @@ def uuid6(clock_seq: int = None) -> UUID:
 
 
 def uuid7() -> UUID:
-    r"""UUID version 7 features a time-ordered value field derived from the
-    widely implemented and well known Unix Epoch timestamp source, the
-    number of milliseconds seconds since midnight 1 Jan 1970 UTC, leap
-    seconds excluded.  As well as improved entropy characteristics over
-    versions 1 or 6.
-    Implementations SHOULD utilize UUID version 7 over UUID version 1 and
-    6 if possible."""
+    # UUID version 7 features a time-ordered value field derived from the
+    # widely implemented and well known Unix Epoch timestamp source, the
+    # number of milliseconds seconds since midnight 1 Jan 1970 UTC, leap
+    # seconds excluded.  As well as improved entropy characteristics over
+    # versions 1 or 6.
+    # Implementations SHOULD utilize UUID version 7 over UUID version 1 and
+    # 6 if possible.
 
     global _last_v7_timestamp
 

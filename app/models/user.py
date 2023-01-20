@@ -30,5 +30,5 @@ class UserCreate(UserUpdate):
     pass
 
 
-class User(BaseUUIDModel, UserUpdate, table=True):
+class User(BaseUUIDModel, UserCreate, table=True):
     hashed_password: Optional[str] = Field(nullable=False, index=True)
