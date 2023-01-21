@@ -284,40 +284,6 @@ SQLAlchemy = ">=1.4.11"
 starlette = ">=0.13.6"
 
 [[package]]
-name = "fastapi-pagination"
-version = "0.11.2"
-description = "FastAPI pagination"
-category = "main"
-optional = false
-python-versions = ">=3.8,<4.0"
-files = [
-    {file = "fastapi_pagination-0.11.2-py3-none-any.whl", hash = "sha256:db4bde1c055a85e3840faa70b2a63d27e45542c0ebd97cba8ca786850bb48c6d"},
-    {file = "fastapi_pagination-0.11.2.tar.gz", hash = "sha256:55ecf04131c22c9ee9b9c060d42b1555fba1188aa60fac826a9e475bb9246e83"},
-]
-
-[package.dependencies]
-fastapi = ">=0.80.0"
-pydantic = ">=1.9.1"
-sqlakeyset = {version = ">=1.0.1659142803,<2.0.0", optional = true, markers = "extra == \"sqlmodel\" or extra == \"sqlalchemy\" or extra == \"all\""}
-SQLAlchemy = {version = ">=1.3.20", optional = true, markers = "extra == \"sqlalchemy\" or extra == \"asyncpg\" or extra == \"all\""}
-
-[package.extras]
-all = ["SQLAlchemy (>=1.3.20)", "asyncpg (>=0.24.0)", "beanie (>=1.11.9,<2.0.0)", "databases (>=0.6.0)", "django (<5.0.0)", "mongoengine (>=0.23.1,<0.26.0)", "motor (>=2.5.1,<4.0.0)", "orm (>=0.3.1)", "ormar (>=0.11.2)", "piccolo (>=0.89,<0.106)", "pony (>=0.7.16,<0.8.0)", "scylla-driver (>=3.25.6,<4.0.0)", "sqlakeyset (>=1.0.1659142803,<2.0.0)", "sqlmodel (>=0.0.8,<0.0.9)", "tortoise-orm (>=0.16.18,<0.20.0)"]
-asyncpg = ["SQLAlchemy (>=1.3.20)", "asyncpg (>=0.24.0)"]
-beanie = ["beanie (>=1.11.9,<2.0.0)"]
-databases = ["databases (>=0.6.0)"]
-django = ["databases (>=0.6.0)", "django (<5.0.0)"]
-mongoengine = ["mongoengine (>=0.23.1,<0.26.0)"]
-motor = ["motor (>=2.5.1,<4.0.0)"]
-orm = ["databases (>=0.6.0)", "orm (>=0.3.1)"]
-ormar = ["ormar (>=0.11.2)"]
-piccolo = ["piccolo (>=0.89,<0.106)"]
-scylla-driver = ["scylla-driver (>=3.25.6,<4.0.0)"]
-sqlalchemy = ["SQLAlchemy (>=1.3.20)", "sqlakeyset (>=1.0.1659142803,<2.0.0)"]
-sqlmodel = ["sqlakeyset (>=1.0.1659142803,<2.0.0)", "sqlmodel (>=0.0.8,<0.0.9)"]
-tortoise = ["tortoise-orm (>=0.16.18,<0.20.0)"]
-
-[[package]]
 name = "greenlet"
 version = "2.0.1"
 description = "Lightweight in-process concurrent programming"
@@ -721,18 +687,6 @@ files = [
 ]
 
 [[package]]
-name = "packaging"
-version = "23.0"
-description = "Core utilities for Python packages"
-category = "main"
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "packaging-23.0-py3-none-any.whl", hash = "sha256:714ac14496c3e68c99c29b00845f7a2b85f3bb6f1078fd9f72fd20f0570002b2"},
-    {file = "packaging-23.0.tar.gz", hash = "sha256:b6ad297f8907de0fa2fe1ccbd26fdaf387f5f47c7275fedf8cce89f99446cf97"},
-]
-
-[[package]]
 name = "pathspec"
 version = "0.10.3"
 description = "Utility library for gitignore style pattern matching of file paths."
@@ -812,21 +766,6 @@ typing-extensions = ">=4.2.0"
 [package.extras]
 dotenv = ["python-dotenv (>=0.10.4)"]
 email = ["email-validator (>=1.0.3)"]
-
-[[package]]
-name = "python-dateutil"
-version = "2.8.2"
-description = "Extensions to the standard Python datetime module"
-category = "main"
-optional = false
-python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
-files = [
-    {file = "python-dateutil-2.8.2.tar.gz", hash = "sha256:0123cacc1627ae19ddf3c27a5de5bd67ee4586fbdd6440d9748f8abb483d3e86"},
-    {file = "python_dateutil-2.8.2-py2.py3-none-any.whl", hash = "sha256:961d03dc3453ebbc59dbdea9e4e11c5651520a876d0f4db161e8674aae935da9"},
-]
-
-[package.dependencies]
-six = ">=1.5"
 
 [[package]]
 name = "python-dotenv"
@@ -948,23 +887,6 @@ files = [
     {file = "sniffio-1.3.0-py3-none-any.whl", hash = "sha256:eecefdce1e5bbfb7ad2eeaabf7c1eeb404d7757c379bd1f7e5cce9d8bf425384"},
     {file = "sniffio-1.3.0.tar.gz", hash = "sha256:e60305c5e5d314f5389259b7f22aaa33d8f7dee49763119234af3755c55b9101"},
 ]
-
-[[package]]
-name = "sqlakeyset"
-version = "1.0.1659142803"
-description = "offset-free paging for sqlalchemy"
-category = "main"
-optional = false
-python-versions = ">=3.4"
-files = [
-    {file = "sqlakeyset-1.0.1659142803-py3-none-any.whl", hash = "sha256:4a6e6ee68d3a3b1b2cac358ef8c7a914ab375b242da89a543b92150abd2df523"},
-    {file = "sqlakeyset-1.0.1659142803.tar.gz", hash = "sha256:fc9c7b0509f8eadb3e686b643c8a8ac178d6d1e13d3e0110bc73a59d98cf0695"},
-]
-
-[package.dependencies]
-packaging = ">=20.0"
-python-dateutil = "*"
-sqlalchemy = ">=1.3.11"
 
 [[package]]
 name = "sqlalchemy"
@@ -1120,6 +1042,27 @@ typing-extensions = {version = ">=3.10.0", markers = "python_version < \"3.10\""
 
 [package.extras]
 full = ["httpx (>=0.22.0)", "itsdangerous", "jinja2", "python-multipart", "pyyaml"]
+
+[[package]]
+name = "starlette-session"
+version = "0.4.3"
+description = "A library for backend side session with starlette"
+category = "main"
+optional = false
+python-versions = ">=3.7,<4"
+files = [
+    {file = "starlette_session-0.4.3-py3-none-any.whl", hash = "sha256:bfc2559ec0fec566b44865f20d1c4262b1132de867a936abe8771cf139cbbe0b"},
+    {file = "starlette_session-0.4.3.tar.gz", hash = "sha256:5b50a1c91a2ca1cf594574c0b386eea5dbed140dcb397ee73f0c43956bd2bfcc"},
+]
+
+[package.dependencies]
+itsdangerous = ">=1.1.0"
+starlette = "<1"
+
+[package.extras]
+aioredis = ["aioredis (>=1.3.1)"]
+pymemcache = ["pymemcache (>=3.3.0)"]
+redis = ["redis (>=3.5.3)"]
 
 [[package]]
 name = "tomli"
@@ -1420,4 +1363,4 @@ testing = ["flake8 (<5)", "func-timeout", "jaraco.functools", "jaraco.itertools"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "647ab97d4024f39e914b6a7f90971fd9da84c30f5e35054a421129b44a79ef71"
+content-hash = "6fe9b77297fc300a15dff4ad6d85dc06e0db443ee939b0947992701b8106e51a"

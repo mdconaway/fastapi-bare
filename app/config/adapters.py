@@ -4,20 +4,19 @@ from typing import Optional, Dict, Any, Union
 
 
 class Adapters(Base):
+    # Postgresql config
     DATABASE_USER: str
     DATABASE_PASSWORD: str
     DATABASE_HOST: str
     DATABASE_PORT: Union[int, str]
     DATABASE_NAME: str
-    REDIS_HOST: str
-    REDIS_PORT: str
-    DB_POOL_SIZE = 83
-    WEB_CONCURRENCY = 9
-    POOL_SIZE = max(DB_POOL_SIZE // WEB_CONCURRENCY, 5)
-    MAX_OVERFLOW = 64
-    ASYNC_DATABASE_URI: Optional[str]
+    DATABASE_POOL_SIZE: int
+    DATABASE_MAX_OVERFLOW: int
+    DATABASE_URI: Optional[str]
+    DATABASE_SUPERUSER_EMAIL: EmailStr
+    DATABASE_SUPERUSER_PASSWORD: str
 
-    @validator("ASYNC_DATABASE_URI", pre=True)
+    @validator("DATABASE_URI", pre=True)
     def assemble_db_connection(cls, v: Optional[str], values: Dict[str, Any]) -> Any:
         if isinstance(v, str):
             return v
@@ -30,8 +29,10 @@ class Adapters(Base):
             path=f"/{values.get('DATABASE_NAME') or ''}",
         )
 
-    FIRST_SUPERUSER_EMAIL: EmailStr
-    FIRST_SUPERUSER_PASSWORD: str
+    # Redis config
+    REDIS_HOST: str
+    REDIS_PORT: str
+    REDIS_MAX_CONNECTIONS: Union[int, str]
 
 
 adapters = Adapters()

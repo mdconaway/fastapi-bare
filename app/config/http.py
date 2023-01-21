@@ -4,9 +4,9 @@ from typing import Union, List
 
 
 class Http(Base):
-    BACKEND_CORS_ORIGINS: Union[List[str], List[AnyHttpUrl]]
+    HTTP_CORS_ORIGINS: Union[List[str], List[AnyHttpUrl]]
 
-    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    @validator("HTTP_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]

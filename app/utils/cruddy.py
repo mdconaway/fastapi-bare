@@ -8,7 +8,7 @@ import sys
 import glob
 import importlib.util
 from os import path
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Depends
 from sqlalchemy import update as _update, delete as _delete, or_, text, func, column
 from sqlalchemy.sql import select
 from sqlalchemy.orm import sessionmaker, declared_attr
@@ -85,34 +85,59 @@ class Example(BaseIdModel, ExampleCreate, table=True):
     db_only_field: str
 
 
+def asemblePolicies(*args: (List)):
+    merged = []
+    for policy_set in args:
+        for individual_policy in policy_set:
+            merged.append(Depends(individual_policy))
+    return merged
+
+
 def Controller(
+    repository=...,
     prefix="/example",
     tags=["example"],
+    id_type=int,
     single_schema=ResponseSchema,
     many_schema=PageResponse,
     meta_schema=MetaObject,
     update_model=ExampleUpdate,
     create_model=ExampleCreate,
-    id_type=int,
-    repository=...,
+    universal_policies=[],
+    create_policies=[],
+    update_policies=[],
+    delete_policies=[],
+    get_one_policies=[],
+    get_many_policies=[],
 ) -> APIRouter:
 
     controller = APIRouter(prefix=prefix, tags=tags)
 
-    @controller.post("", response_model=single_schema, response_model_exclude_none=True)
+    @controller.post(
+        "",
+        response_model=single_schema,
+        response_model_exclude_none=True,
+        dependencies=asemblePolicies(universal_policies, create_policies),
+    )
     async def create(data: create_model):
         await repository.create(data=data)
         return single_schema(message="Successfully created data !")
 
     @controller.patch(
-        "/{id}", response_model=single_schema, response_model_exclude_none=True
+        "/{id}",
+        response_model=single_schema,
+        response_model_exclude_none=True,
+        dependencies=asemblePolicies(universal_policies, update_policies),
     )
     async def update(id: id_type = Path(..., alias="id"), *, data: update_model):
         await repository.update(id=id, data=data)
         return single_schema(message="Successfully updated data !")
 
     @controller.delete(
-        "/{id}", response_model=single_schema, response_model_exclude_none=True
+        "/{id}",
+        response_model=single_schema,
+        response_model_exclude_none=True,
+        dependencies=asemblePolicies(universal_policies, delete_policies),
     )
     async def delete(
         id: id_type = Path(..., alias="id"),
@@ -121,22 +146,30 @@ def Controller(
         return single_schema(message="Successfully deleted data !")
 
     @controller.get(
-        "/{id}", response_model=single_schema, response_model_exclude_none=True
+        "/{id}",
+        response_model=single_schema,
+        response_model_exclude_none=True,
+        dependencies=asemblePolicies(universal_policies, get_one_policies),
     )
     async def get_by_id(id: id_type = Path(..., alias="id")):
         data = await repository.get_by_id(id=id)
         return single_schema(message="Successfully fetch data by id !", data=data)
 
-    @controller.get("", response_model=many_schema, response_model_exclude_none=True)
+    @controller.get(
+        "",
+        response_model=many_schema,
+        response_model_exclude_none=True,
+        dependencies=asemblePolicies(universal_policies, get_many_policies),
+    )
     async def get_all(
         page: int = 1,
         limit: int = 10,
         columns: str = Query(None, alias="columns"),
         sort: str = Query(None, alias="sort"),
-        filter: str = Query(None, alias="filter"),
+        where: str = Query(None, alias="where"),
     ):
         result: BulkDTO = await repository.get_all(
-            page=page, limit=limit, columns=columns, sort=sort, filter=filter
+            page=page, limit=limit, columns=columns, sort=sort, where=where
         )
         meta = {
             "page_number": page,
@@ -208,7 +241,7 @@ class AbstractRepository:
             limit: int = 10,
             columns: str = None,
             sort: str = None,
-            filter: str = None,
+            where: str = None,
         ):
             query = select(from_obj=model, columns="*")
 
@@ -220,19 +253,22 @@ class AbstractRepository:
                     columns=list(map(lambda x: column(x), columns.split("-"))),
                 )
 
-            # select filter dynamically
-            if filter is not None and filter != "null":
-                # we need filter format data like this  --> {'name': 'an','country':'an'}
+            # select where dynamically
+            if where is not None and where != "null":
+                # we need where format data like this  --> {'name': 'an','country':'an'}
+                # expect incoming where param to look like where=first_name*bill-last_name*smith
+                # which would convert to {'first_name': 'bill','last_name':'smith'}
                 # convert string to dict format
-                criteria = dict(x.split("*") for x in filter.split("-"))
+                criteria = dict(x.split("*") for x in where.split("-"))
                 criteria_list = []
                 # check every key in dict. are there any table attributes that are the same as the dict key ?
                 for attr, value in criteria.items():
                     _attr = getattr(model, attr)
-                    # filter format
+                    # where format
                     search = "%{}%".format(value)
                     # criteria list
                     criteria_list.append(_attr.like(search))
+                print(criteria_list)
                 query = query.filter(or_(*criteria_list))
 
             # select sort dynamically
@@ -326,6 +362,10 @@ class Resource:
 
     def __init__(
         self,
+        adapter=None,
+        connection_uri="",
+        pool_size=4,
+        max_overflow=64,
         prefix="/example",
         tags=["example"],
         response_single_schema=ResponseSchema,
@@ -335,10 +375,12 @@ class Resource:
         resource_create_model=ExampleCreate,
         resource_model=Example,
         id_type=int,
-        adapter=None,
-        connection_uri="",
-        pool_size=4,
-        max_overflow=64,
+        universal_policies=[],
+        create_policies=[],
+        update_policies=[],
+        delete_policies=[],
+        get_one_policies=[],
+        get_many_policies=[],
     ):
         if None == adapter:
             self.adapter = PostgresqlAdapter(connection_uri, pool_size, max_overflow)
@@ -354,15 +396,21 @@ class Resource:
         )
 
         self.controller = Controller(
+            repository=self.repository,
             prefix=prefix,
             tags=tags,
+            id_type=id_type,
             single_schema=response_single_schema,
             many_schema=response_many_schema,
             meta_schema=response_meta_schema,
             update_model=resource_update_model,
             create_model=resource_create_model,
-            id_type=id_type,
-            repository=self.repository,
+            universal_policies=universal_policies,
+            create_policies=create_policies,
+            update_policies=update_policies,
+            delete_policies=delete_policies,
+            get_one_policies=get_one_policies,
+            get_many_policies=get_many_policies,
         )
 
 
@@ -388,7 +436,7 @@ def getDirectoryModules(
             full_module_name = ".".join(m_module_tokens)
             spec = importlib.util.spec_from_file_location(full_module_name, m)
             abstract_module = importlib.util.module_from_spec(spec)
-            loaded_modules += [(module_name, abstract_module)]
+            loaded_modules.append((module_name, abstract_module))
             sys.modules[full_module_name] = abstract_module
             spec.loader.exec_module(abstract_module)
     return loaded_modules

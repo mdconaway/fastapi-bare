@@ -38,7 +38,7 @@ def run_migrations_offline():
     Calls to context.execute() here emit the given string to the
     script output.
     """
-    url = adapters.ASYNC_DATABASE_URI
+    url = adapters.DATABASE_URI
     context.configure(
         url=url, target_metadata=target_metadata, literal_binds=True, compare_type=True, dialect_opts={"paramstyle": "named"}
     )
@@ -58,7 +58,7 @@ async def run_migrations_online():
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    connectable = AsyncEngine(create_engine(adapters.ASYNC_DATABASE_URI, echo=True, future=True))
+    connectable = AsyncEngine(create_engine(adapters.DATABASE_URI, echo=True, future=True))
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

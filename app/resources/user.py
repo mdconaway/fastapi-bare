@@ -3,6 +3,7 @@ from app.adapters import postgresql
 from app.utils.uuid import UUID
 from app.models.user import User, UserCreate, UserUpdate
 from app.schemas.response import MetaObject, PageResponse, ResponseSchema
+from app.policies.verify_session import verify_session
 
 resource = Resource(
     adapter=postgresql,
@@ -15,4 +16,5 @@ resource = Resource(
     resource_create_model=UserCreate,
     resource_model=User,
     id_type=UUID,
+    universal_policies=[verify_session],
 )
