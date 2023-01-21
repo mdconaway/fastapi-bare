@@ -2,8 +2,6 @@ from pydantic.generics import GenericModel
 from typing import TypeVar, Optional, Generic, List
 from sqlmodel import SQLModel
 
-# Look into this for making generic factories??
-# https://shanenullain.medium.com/abstract-factory-in-python-with-generic-typing-b9ceca2bf89e
 
 T = TypeVar("T")
 
