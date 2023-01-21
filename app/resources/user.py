@@ -16,7 +16,3 @@ resource = Resource(
     resource_model=User,
     id_type=UUID,
 )
-
-controller = resource.controller
-repository = resource.repository
-adapter = resource.adapter

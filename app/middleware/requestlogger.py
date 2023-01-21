@@ -4,6 +4,12 @@ import time
 import string
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
+from os import path
+
+logging.config.fileConfig(
+    path.join(path.dirname(path.abspath(__file__)), "../config/logging.conf"),
+    disable_existing_loggers=False,
+)
 
 logger = logging.getLogger(__name__)
 

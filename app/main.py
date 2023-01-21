@@ -6,17 +6,12 @@ from app.config import general, adapters, http
 from app.adapters import redis, postgresql
 from app.router import application as ApplicationRouter
 from app.middleware import RequestLogger
-from os import path
 
-
-logging.config.fileConfig(
-    path.join(path.dirname(path.abspath(__file__)), "logging.conf"),
-    disable_existing_loggers=False,
-)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=general.PROJECT_NAME, version=general.API_VERSION)
 
+# This enabled Depends to access the DB from controllers
 app.add_middleware(
     SQLAlchemyMiddleware,
     db_url=adapters.ASYNC_DATABASE_URI,
@@ -24,7 +19,7 @@ app.add_middleware(
         "echo": False,
         "pool_pre_ping": True,
         "pool_size": adapters.POOL_SIZE,
-        "max_overflow": 64,
+        "max_overflow": adapters.MAX_OVERFLOW,
     },
 )
 

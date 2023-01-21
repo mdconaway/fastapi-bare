@@ -3,14 +3,21 @@
 # A Sails / Ember lover.
 
 import math
+import os
+import sys
+import glob
+import importlib.util
+from os import path
 from fastapi import APIRouter, Path, Query
 from sqlalchemy import update as _update, delete as _delete, or_, text, func, column
 from sqlalchemy.sql import select
 from sqlalchemy.orm import sessionmaker, declared_attr
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
+from contextlib import asynccontextmanager
 from sqlmodel import text
 from sqlmodel.ext.asyncio.session import AsyncSession
-from typing import AsyncGenerator, Union, TypeVar, Optional, Generic, List  # TypedDict
+from types import ModuleType
+from typing import Union, TypeVar, Optional, Generic, List
 from pydantic.generics import GenericModel
 from sqlmodel import Field, SQLModel as _SQLModel
 from datetime import datetime
@@ -158,23 +165,22 @@ class AbstractRepository:
 
         async def create(data: create_model):
             # create user data
-            session = await adapter.getSession()
-            await session.add(model(**data.dict()))
+            async with adapter.getSession() as session:
+                await session.add(model(**data.dict()))
             # return a value?
 
         self.create = create
 
         async def get_by_id(id: id_type):
             # retrieve user data by id
-            session = await adapter.getSession()
             query = select(model).where(model.id == id)
-            result = (await session.execute(query)).scalar_one_or_none()
+            async with adapter.getSession() as session:
+                result = (await session.execute(query)).scalar_one_or_none()
             return result
 
         self.get_by_id = get_by_id
 
         async def update(id: id_type, data: update_model):
-            session = await adapter.getSession()
             # update user data
             query = (
                 _update(model)
@@ -182,16 +188,17 @@ class AbstractRepository:
                 .values(**data.dict())
                 .execution_options(synchronize_session="fetch")
             )
-            await session.execute(query)
+            async with adapter.getSession() as session:
+                await session.execute(query)
             # return a value?
 
         self.update = update
 
         async def delete(id: id_type):
             # delete user data by id
-            session = await adapter.getSession()
             query = _delete(model).where(model.id == id)
-            await session.execute(query)
+            async with adapter.getSession() as session:
+                await session.execute(query)
             # return a value?
 
         self.delete = delete
@@ -203,7 +210,6 @@ class AbstractRepository:
             sort: str = None,
             filter: str = None,
         ):
-            session = await adapter.getSession()
             query = select(from_obj=model, columns="*")
 
             # select columns dynamically
@@ -240,14 +246,15 @@ class AbstractRepository:
             # pagination
             query = query.offset(offset_page * limit).limit(limit)
             # total record
-            total_record = (await session.execute(count_query)).scalar() or 0
-            # total page
-            total_page = math.ceil(total_record / limit)
 
-            # result
-            result = (await session.execute(query)).fetchall()
+            async with adapter.getSession() as session:
+                total_record = (await session.execute(count_query)).scalar() or 0
+                # result
+                result = (await session.execute(query)).fetchall()
 
             # possible pass in outside functions to map/alter data?
+            # total page
+            total_page = math.ceil(total_record / limit)
             return BulkDTO(
                 total_pages=total_page, total_records=total_record, data=result
             )
@@ -256,12 +263,8 @@ class AbstractRepository:
 
 
 # The default adapter for CruddyResource
-# Currently has a bug. yield isn't halting properly
-# Queries are being sent AFTER the session has been told to close
-# which is creating non-fatal error messages over time.
 class PostgresqlAdapter:
     engine: Union[AsyncEngine, None] = None
-    sessionLocal = None
 
     def __init__(self, connection_uri="", pool_size=4, max_overflow=64):
         self.engine = create_async_engine(
@@ -271,19 +274,11 @@ class PostgresqlAdapter:
             pool_size=pool_size,
             max_overflow=max_overflow,
         )
-        self.sessionLocal = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            future=True,
-            bind=self.engine,
-            class_=AsyncSession,
-            expire_on_commit=False,
-        )
 
     # Since this returns an async generator, to use it elsewhere, it
     # should be invoked using the following syntax.
     #
-    # async for session in postgresql.getSession(): session
+    # async with postgresql.getSession() as session:
     #
     # which will iterate through the generator context and yield the
     # product into a local variable named session.
@@ -292,30 +287,38 @@ class PostgresqlAdapter:
     # transactions, or rolling them back. It will happen here after
     # the yielded context cedes control of the event loop back to
     # the adapter. If the database explodes, the rollback happens.
-    async def _getSession(self) -> AsyncGenerator[AsyncSession, None]:
-        async with self.sessionLocal() as session:
-            try:
-                yield session
-                try:
-                    await session.commit()
-                except Exception:
-                    await session.rollback()
-                    raise
-            finally:
-                await session.close()
 
-    # streamlines external calls to getSession to allow simple await
-    async def getSession(self) -> Union[AsyncSession, None]:
-        async for session in self._getSession():
-            session
-        return session
+    def asyncSessionGenerator(self):
+        return sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            future=True,
+            bind=self.engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+    @asynccontextmanager
+    async def getSession(self):
+        try:
+            asyncSession = self.asyncSessionGenerator()
+
+            async with asyncSession() as session:
+                yield session
+                await session.commit()
+        except:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
     async def addPostgresqlExtension(self) -> None:
-        session = await self.getSession()
         query = text("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-        await session.execute(query)
+        async with self.getSession() as session:
+            await session.execute(query)
 
 
+# Next step: add input parameter for adding policies to each action
 class Resource:
     adapter: PostgresqlAdapter = None
     repository: AbstractRepository = None
@@ -361,3 +364,48 @@ class Resource:
             id_type=id_type,
             repository=self.repository,
         )
+
+
+def getModuleDir(application_module) -> str:
+    return path.dirname(os.path.abspath(application_module.__file__))
+
+
+def getDirectoryModules(
+    application_module: ModuleType = ..., sub_module_path="resources"
+):
+    app_root = getModuleDir(application_module)
+    app_root_name = path.split(app_root)[1]
+    normalized_sub_path = os.path.normpath(sub_module_path)
+    submodule_tokens = normalized_sub_path.split(os.sep)
+    modules = glob.glob(path.join(app_root, sub_module_path, "*.py"))
+    full_module_base = [app_root_name] + submodule_tokens
+    loaded_modules = []
+    for m in modules:
+        file_name = path.basename(m)
+        module_name = os.path.splitext(file_name)[0]
+        if "__init__" != module_name:
+            m_module_tokens = full_module_base + [module_name]
+            full_module_name = ".".join(m_module_tokens)
+            spec = importlib.util.spec_from_file_location(full_module_name, m)
+            abstract_module = importlib.util.module_from_spec(spec)
+            loaded_modules += [(module_name, abstract_module)]
+            sys.modules[full_module_name] = abstract_module
+            spec.loader.exec_module(abstract_module)
+    return loaded_modules
+
+
+def CreateRouterFromResources(
+    application_module: ModuleType = ...,
+    resource_path: str = "resources",
+    common_resource_name: str = "resource",
+) -> APIRouter:
+    modules = getDirectoryModules(
+        application_module=application_module, sub_module_path=resource_path
+    )
+    router = APIRouter()
+    for m in modules:
+        module = m[1]
+        router.include_router(
+            getattr(getattr(module, common_resource_name), "controller")
+        )
+    return router

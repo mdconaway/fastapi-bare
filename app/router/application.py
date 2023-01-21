@@ -1,6 +1,14 @@
+import app
+from app.utils.cruddy import CreateRouterFromResources
 from fastapi import APIRouter
-from app.resources import user
 
-router = APIRouter()
+# Users can override expected default object each resource module exports
+# via the named parameter common_resource_name such as:
+# common_resource_name="OddResource"
+# The finder function expects to find a CRUDDY resource object, complete
+# with a controller property, which is a sub-router.
+router: APIRouter = CreateRouterFromResources(
+    application_module=app, resource_path="resources"
+)
 
-router.include_router(user)
+# You can now bind additional routes to "router" below, as its a normal APIRouter
