@@ -103,12 +103,12 @@ def Controller(
     meta_schema=MetaObject,
     update_model=ExampleUpdate,
     create_model=ExampleCreate,
-    universal_policies=[],
-    create_policies=[],
-    update_policies=[],
-    delete_policies=[],
-    get_one_policies=[],
-    get_many_policies=[],
+    policies_universal=[],
+    policies_create=[],
+    policies_update=[],
+    policies_delete=[],
+    policies_get_one=[],
+    policies_get_many=[],
 ) -> APIRouter:
 
     controller = APIRouter(prefix=prefix, tags=tags)
@@ -117,7 +117,7 @@ def Controller(
         "",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(universal_policies, create_policies),
+        dependencies=asemblePolicies(policies_universal, policies_create),
     )
     async def create(data: create_model):
         await repository.create(data=data)
@@ -127,7 +127,7 @@ def Controller(
         "/{id}",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(universal_policies, update_policies),
+        dependencies=asemblePolicies(policies_universal, policies_update),
     )
     async def update(id: id_type = Path(..., alias="id"), *, data: update_model):
         await repository.update(id=id, data=data)
@@ -137,7 +137,7 @@ def Controller(
         "/{id}",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(universal_policies, delete_policies),
+        dependencies=asemblePolicies(policies_universal, policies_delete),
     )
     async def delete(
         id: id_type = Path(..., alias="id"),
@@ -149,7 +149,7 @@ def Controller(
         "/{id}",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(universal_policies, get_one_policies),
+        dependencies=asemblePolicies(policies_universal, policies_get_one),
     )
     async def get_by_id(id: id_type = Path(..., alias="id")):
         data = await repository.get_by_id(id=id)
@@ -159,7 +159,7 @@ def Controller(
         "",
         response_model=many_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(universal_policies, get_many_policies),
+        dependencies=asemblePolicies(policies_universal, policies_get_many),
     )
     async def get_all(
         page: int = 1,
@@ -375,12 +375,12 @@ class Resource:
         resource_create_model=ExampleCreate,
         resource_model=Example,
         id_type=int,
-        universal_policies=[],
-        create_policies=[],
-        update_policies=[],
-        delete_policies=[],
-        get_one_policies=[],
-        get_many_policies=[],
+        policies_universal=[],
+        policies_create=[],
+        policies_update=[],
+        policies_delete=[],
+        policies_get_one=[],
+        policies_get_many=[],
     ):
         if None == adapter:
             self.adapter = PostgresqlAdapter(connection_uri, pool_size, max_overflow)
@@ -405,12 +405,12 @@ class Resource:
             meta_schema=response_meta_schema,
             update_model=resource_update_model,
             create_model=resource_create_model,
-            universal_policies=universal_policies,
-            create_policies=create_policies,
-            update_policies=update_policies,
-            delete_policies=delete_policies,
-            get_one_policies=get_one_policies,
-            get_many_policies=get_many_policies,
+            policies_universal=policies_universal,
+            policies_create=policies_create,
+            policies_update=policies_update,
+            policies_delete=policies_delete,
+            policies_get_one=policies_get_one,
+            policies_get_many=policies_get_many,
         )
 
 

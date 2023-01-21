@@ -16,5 +16,5 @@ resource = Resource(
     resource_create_model=UserCreate,
     resource_model=User,
     id_type=UUID,
-    universal_policies=[verify_session],
+    policies_universal=[verify_session],
 )
