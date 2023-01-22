@@ -9,7 +9,16 @@ import glob
 import importlib.util
 from os import path
 from fastapi import APIRouter, Path, Query, Depends
-from sqlalchemy import update as _update, delete as _delete, or_, text, func, column
+from sqlalchemy import (
+    update as _update,
+    delete as _delete,
+    or_,
+    and_,
+    not_,
+    text,
+    func,
+    column,
+)
 from sqlalchemy.sql import select
 from sqlalchemy.orm import sessionmaker, declared_attr
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
@@ -17,8 +26,9 @@ from contextlib import asynccontextmanager
 from sqlmodel import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 from types import ModuleType
-from typing import Union, TypeVar, Optional, Generic, List
+from typing import Union, TypeVar, Optional, Generic, List, Dict
 from pydantic.generics import GenericModel
+from pydantic.types import Json
 from sqlmodel import Field, SQLModel as _SQLModel
 from datetime import datetime
 
@@ -164,9 +174,9 @@ def Controller(
     async def get_all(
         page: int = 1,
         limit: int = 10,
-        columns: str = Query(None, alias="columns"),
-        sort: str = Query(None, alias="sort"),
-        where: str = Query(None, alias="where"),
+        columns: List[str] = Query(None, alias="columns"),
+        sort: List[str] = Query(None, alias="sort"),
+        where: Json = Query(None, alias="where"),
     ):
         result: BulkDTO = await repository.get_all(
             page=page, limit=limit, columns=columns, sort=sort, where=where
@@ -195,6 +205,11 @@ class AbstractRepository:
         self.create_model = create_model
         self.model = model
         self.id_type = id_type
+        self.op_map = {
+            "*and": and_,
+            "*or": or_,
+            "*not": not_,
+        }
 
         async def create(data: create_model):
             # create user data
@@ -239,42 +254,49 @@ class AbstractRepository:
         async def get_all(
             page: int = 1,
             limit: int = 10,
-            columns: str = None,
-            sort: str = None,
-            where: str = None,
+            columns: List[str] = None,
+            sort: List[str] = None,
+            where: Json = None,
         ):
-            query = select(from_obj=model, columns="*")
+            select_columns = (
+                list(map(lambda x: column(x), columns))
+                if columns is not None and columns != []
+                else "*"
+            )
+            query = select(from_obj=model, columns=select_columns)
 
-            # select columns dynamically
-            if columns is not None and columns != "all":
-                # we need column format data like this --> [column(id),column(name),column(sex)...]
-                query = select(
-                    from_obj=model,
-                    columns=list(map(lambda x: column(x), columns.split("-"))),
-                )
-
-            # select where dynamically
-            if where is not None and where != "null":
-                # we need where format data like this  --> {'name': 'an','country':'an'}
-                # expect incoming where param to look like where=first_name*bill-last_name*smith
-                # which would convert to {'first_name': 'bill','last_name':'smith'}
-                # convert string to dict format
-                criteria = dict(x.split("*") for x in where.split("-"))
-                criteria_list = []
-                # check every key in dict. are there any table attributes that are the same as the dict key ?
-                for attr, value in criteria.items():
-                    _attr = getattr(model, attr)
-                    # where format
-                    search = "%{}%".format(value)
-                    # criteria list
-                    criteria_list.append(_attr.like(search))
-                print(criteria_list)
-                query = query.filter(or_(*criteria_list))
+            # build an arbitrarily deep query with a JSON dictionary
+            # a query object is a JSON object that generally looks like
+            # all boolean operators, or field level operators, begin with a
+            # * character. This will nearly always translate down to the sqlalchemy
+            # level, where it is up to the model class to determine what operations
+            # are possible on each model attribute.
+            # The top level query object is an implicit AND.
+            # To do an OR, the base key of the search must be *or, as below examples:
+            # {"*or":{"first_name":"bilbo","last_name":"baggins"}}
+            # {"*or":{"first_name":{"*contains":"bilbo"},"last_name":"baggins"}}
+            # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":{"email":{"*contains":"@"},"first_name":{"*contains":"helga"}}}}
+            # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":[{"email":{"*contains":"@"}},{"email":{"*contains":"helga"}}]}}
+            # The following query would be an implicit *and:
+            # [{"first_name":{"*endswith":"bilbo"}},{"last_name":"baggins"}]
+            # As would the following query:
+            # {"first_name":{"*endswith":"bilbo"},"last_name":"baggins"}
+            if isinstance(where, dict) or isinstance(where, list):
+                query = query.filter(and_(*self.query_forge(model=model, where=where)))
 
             # select sort dynamically
-            if sort is not None and sort != "null":
-                # we need sort format data like this --> ['id','name']
-                query = query.order_by(text(",".join(sort.split("-"))))
+            if sort is not None and sort != []:
+                # we need sort format data like this --> ['id asc','name desc', 'email']
+                def splitter(sort_string: str):
+                    parts = sort_string.split(" ")
+                    getter = "asc"
+                    if len(parts) == 2:
+                        getter = parts[1]
+                    return getattr(getattr(self.model, parts[0]), getter)
+
+                sorts = list(map(splitter, sort))
+                for field in sorts:
+                    query = query.order_by(field())
 
             # count query
             count_query = select(func.count(1)).select_from(query)
@@ -296,6 +318,50 @@ class AbstractRepository:
             )
 
         self.get_all = get_all
+
+    # Initial, simple, query forge. Invalid attrs or ops are just dropped.
+    # Improvements to make:
+    # 1. Table joins for relationships.
+    # 2. Make relationships searchable too!
+    # 3. Maybe throw an error if a bad search field is sent? (Will help UI devs)
+    def query_forge(self, model, where: Union[Dict, List[Dict]]):
+        level_criteria = []
+        if not (isinstance(where, list) or isinstance(where, dict)):
+            return []
+        if isinstance(where, list):
+            list_of_lists = list(
+                map(lambda x: self.query_forge(model=model, where=x), where)
+            )
+            for l in list_of_lists:
+                level_criteria += l
+            return level_criteria
+        for k, v in where.items():
+            isOp = False
+            if k in self.op_map:
+                isOp = self.op_map[k]
+            if isinstance(v, dict) and isOp != False:
+                level_criteria.append(isOp(*self.query_forge(model=model, where=v)))
+            elif isinstance(v, list) and isOp != False:
+                level_criteria.append(isOp(*self.query_forge(model=model, where=v)))
+            elif not isinstance(v, dict) and not isOp and hasattr(model, k):
+                level_criteria.append(getattr(model, k).like(v))
+            elif (
+                isinstance(v, dict)
+                and not isOp
+                and hasattr(model, k)
+                and len(v.items()) == 1
+            ):
+                k2 = list(v.keys())[0]
+                v2 = v[k2]
+                mattr = getattr(model, k)
+                if (
+                    isinstance(k2, str)
+                    and not isinstance(v2, dict)
+                    and k2[0] == "*"
+                    and hasattr(mattr, k2.replace("*", ""))
+                ):
+                    level_criteria.append(getattr(mattr, k2.replace("*", ""))(v2))
+        return level_criteria
 
 
 # The default adapter for CruddyResource
@@ -338,7 +404,6 @@ class PostgresqlAdapter:
     async def getSession(self):
         try:
             asyncSession = self.asyncSessionGenerator()
-
             async with asyncSession() as session:
                 yield session
                 await session.commit()
