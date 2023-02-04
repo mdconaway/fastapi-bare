@@ -45,22 +45,20 @@ class BulkDTO(GenericModel, Generic[T]):
 
 
 class MetaObject(GenericModel, Generic[T]):
-    page_number: int
-    page_size: int
-    total_pages: int
-    total_records: int
+    page: int
+    limit: int
+    pages: int
+    records: int
 
 
 class PageResponse(GenericModel, Generic[T]):
     # The response for a pagination query.
-    message: str
     meta: MetaObject
     data: List[T]
 
 
 class ResponseSchema(_SQLModel):
     # The response for a single object return
-    message: str
     data: Optional[T] = None
 
 
@@ -70,7 +68,7 @@ class SQLModel(_SQLModel):
         return cls.__name__
 
 
-class BaseIdModel(SQLModel):
+class BaseIntIdModel(SQLModel):
     id: Optional[int] = Field(
         default=None,
         primary_key=True,
@@ -91,7 +89,7 @@ class ExampleCreate(ExampleUpdate):
     create_only_field: str
 
 
-class Example(BaseIdModel, ExampleCreate, table=True):
+class Example(BaseIntIdModel, ExampleCreate, table=True):
     db_only_field: str
 
 
@@ -130,8 +128,9 @@ def Controller(
         dependencies=asemblePolicies(policies_universal, policies_create),
     )
     async def create(data: create_model):
-        await repository.create(data=data)
-        return single_schema(message="Successfully created data !")
+        data = await repository.create(data=data)
+        # Add error logic?
+        return single_schema(data=data)
 
     @controller.patch(
         "/{id}",
@@ -140,8 +139,9 @@ def Controller(
         dependencies=asemblePolicies(policies_universal, policies_update),
     )
     async def update(id: id_type = Path(..., alias="id"), *, data: update_model):
-        await repository.update(id=id, data=data)
-        return single_schema(message="Successfully updated data !")
+        data = await repository.update(id=id, data=data)
+        # Add error logic?
+        return single_schema(data=data)
 
     @controller.delete(
         "/{id}",
@@ -152,8 +152,9 @@ def Controller(
     async def delete(
         id: id_type = Path(..., alias="id"),
     ):
-        await repository.delete(id=id)
-        return single_schema(message="Successfully deleted data !")
+        data = await repository.delete(id=id)
+        # Add error logic?
+        return single_schema(data=data)
 
     @controller.get(
         "/{id}",
@@ -163,7 +164,7 @@ def Controller(
     )
     async def get_by_id(id: id_type = Path(..., alias="id")):
         data = await repository.get_by_id(id=id)
-        return single_schema(message="Successfully fetch data by id !", data=data)
+        return single_schema(data=data)
 
     @controller.get(
         "",
@@ -182,13 +183,12 @@ def Controller(
             page=page, limit=limit, columns=columns, sort=sort, where=where
         )
         meta = {
-            "page_number": page,
-            "page_size": limit,
-            "total_pages": result.total_pages,
-            "total_records": result.total_records,
+            "page": page,
+            "limit": limit,
+            "pages": result.total_pages,
+            "records": result.total_records,
         }
         return many_schema(
-            message="Successfully fetch data list !",
             meta=meta_schema(**meta),
             data=result.data,
         )
@@ -214,7 +214,9 @@ class AbstractRepository:
         async def create(data: create_model):
             # create user data
             async with adapter.getSession() as session:
-                await session.add(model(**data.dict()))
+                record = model(**data.dict())
+                await session.add(record)
+            return record
             # return a value?
 
         self.create = create
@@ -237,16 +239,31 @@ class AbstractRepository:
                 .execution_options(synchronize_session="fetch")
             )
             async with adapter.getSession() as session:
-                await session.execute(query)
+                result = await session.execute(query)
+
+            if result.rowcount == 1:
+                return await self.get_by_id(id=id)
+
+            return None
             # return a value?
 
         self.update = update
 
         async def delete(id: id_type):
             # delete user data by id
-            query = _delete(model).where(model.id == id)
+            record = await self.get_by_id(id=id)
+            query = (
+                _delete(model)
+                .where(model.id == id)
+                .execution_options(synchronize_session="fetch")
+            )
             async with adapter.getSession() as session:
-                await session.execute(query)
+                result = await session.execute(query)
+
+            if result.rowcount == 1:
+                return record
+
+            return None
             # return a value?
 
         self.delete = delete
