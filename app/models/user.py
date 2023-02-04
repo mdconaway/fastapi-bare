@@ -80,7 +80,7 @@ class UserSingleResponse(GenericModel, Generic[T]):
 # The "Page Response" model is a generic model used to define how a
 # paged resource should be represented in JSON format when
 # communicating between the client and the server. This is important for
-# defining how query results are transported, and applies to the "get many"
+# defining how query results are transported, and alters how the "get many"
 # action is represented back to the client. Again, this is essentially
 # just a communications schema, but it should be maintained in your model
 # files as it necessarily leverages the "View" model as an embedded
