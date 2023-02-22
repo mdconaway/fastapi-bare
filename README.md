@@ -104,7 +104,7 @@ You will need python3 (3.8+) and poetry installed.
 
 You will probably need docker installed as well, for the whole system to boot.
 
-The CRUD routes are controlled by: https://github.com/Zenor27/fastapi-rest-jsonapi
+An example to expand functionality: https://github.com/Zenor27/fastapi-rest-jsonapi
 
 ### Prerequisites
 

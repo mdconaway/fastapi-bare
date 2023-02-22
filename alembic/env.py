@@ -1,16 +1,18 @@
 from __future__ import with_statement
 import asyncio
+import app
 from logging.config import fileConfig
 from sqlmodel import SQLModel, create_engine
 from sqlmodel.ext.asyncio.session import AsyncEngine
 from alembic import context
 from app.config import adapters
+from app.utils.cruddy import getDirectoryModules
 import sys
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 
-from app.models import *  # necessary to import the files where your models are stored to create SQLModel.metadata
+ALL_MODELS = getDirectoryModules(application_module=app, sub_module_path="models") # necessary to import the files where your models are stored to create SQLModel.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

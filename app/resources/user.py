@@ -1,6 +1,5 @@
-from app.utils.cruddy import Resource
+from app.utils.cruddy import Resource, UUID
 from app.adapters import postgresql
-from app.utils.uuid import UUID
 from app.models.user import (
     User,
     UserCreate,

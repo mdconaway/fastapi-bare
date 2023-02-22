@@ -1,5 +1,5 @@
-from pydantic.generics import GenericModel
-from typing import TypeVar, Optional, Generic, List
+from app.utils.cruddy import CruddyGenericModel
+from typing import TypeVar, Optional, List
 from sqlmodel import SQLModel
 
 T = TypeVar("T")
@@ -9,7 +9,7 @@ T = TypeVar("T")
 # and these inputs can be "remapped" to the new meta object via the
 # super()__init__ method, where the CRUDDY inputs can be mapped to the
 # new base class attributes.
-class MetaObject(GenericModel, Generic[T]):
+class MetaObject(CruddyGenericModel):
     page: int
     limit: int
     pages: int
@@ -25,7 +25,7 @@ class MetaObject(GenericModel, Generic[T]):
         super().__init__(page=page, limit=limit, pages=pages, records=records)
 
 
-class PageResponse(GenericModel, Generic[T]):
+class PageResponse(CruddyGenericModel):
     # The response for a pagination query.
     meta: MetaObject
     data: List[T]

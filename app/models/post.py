@@ -1,12 +1,10 @@
 from typing import Optional, TypeVar, List, TYPE_CHECKING
-from datetime import datetime
-from sqlmodel import Field, Relationship, Column, DateTime
-from pydantic import EmailStr
-from app.utils.cruddy import CruddyGenericModel, CruddyModel, CruddyUUIDModel
+from sqlmodel import Field, Relationship
+from app.utils.cruddy import UUID, CruddyGenericModel, CruddyModel, CruddyUUIDModel
 from app.schemas.response import MetaObject
 
 if TYPE_CHECKING:
-    from app.models.post import Post
+    from app.models.user import User
 
 T = TypeVar("T")
 
@@ -21,29 +19,17 @@ T = TypeVar("T")
 # The "Update" model variant describes all fields that can be affected by a
 # client's PATCH action. Generally, the update model should have the fewest
 # number of available fields for a client to manipulate.
-class UserUpdate(CruddyModel):
-    first_name: str
-    last_name: str
-    email: EmailStr = Field(
-        nullable=True, index=True, sa_column_kwargs={"unique": True}
-    )
-    is_active: bool = Field(default=True)
-    is_superuser: bool = Field(default=False)
-    birthdate: Optional[datetime] = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=True)
-    )  # birthday with timezone
-    phone: Optional[str]
-    state: Optional[str]
-    country: Optional[str]
-    address: Optional[str]
+class PostUpdate(CruddyModel):
+    content: str
 
 
 # The "Create" model variant expands on the update model, above, and adds
 # any new fields that may be writeable only the first time a record is
 # generated. This allows the POST action to accept update-able fields, as
 # well as one-time writeable fields.
-class UserCreate(UserUpdate):
-    pass
+class PostCreate(PostUpdate):
+    user_id: UUID = Field(foreign_key="User.id")
+    user: "User" = Relationship(back_populates="posts")
 
 
 # The "View" model describes all fields that should typcially be present
@@ -52,8 +38,8 @@ class UserCreate(UserUpdate):
 # are important but tamper resistant, such as created_at or updated_at
 # fields. This should be used when defining single responses and paged
 # responses, as in the schemas below.
-class UserView(CruddyUUIDModel, UserCreate):
-    posts: List["Post"] = Relationship(back_populates="user")
+class PostView(CruddyUUIDModel, PostCreate):
+    pass
 
 
 # The "Base" model describes the actual table as it should be reflected in
@@ -61,8 +47,8 @@ class UserView(CruddyUUIDModel, UserCreate):
 # in JSON representations, as it may contain hidden fields like passwords
 # or other server-internal state or tracking information. Keep your "Base"
 # models separated from all other interactive derivations.
-class User(UserView, table=True):
-    hashed_password: Optional[str] = Field(nullable=False, index=True)
+class Post(PostView, table=True):
+    pass
 
 
 # The "Single Response" model is a generic model used to define how a
@@ -71,11 +57,11 @@ class User(UserView, table=True):
 # schema, but it should be maintained in your model files as it necessarily
 # leverages the "View" model as an embedded component of data
 # serialization.
-class UserSingleResponse(CruddyGenericModel):
-    user: Optional[UserView] = None
+class PostSingleResponse(CruddyGenericModel):
+    post: Optional[PostView] = None
 
     def __init__(self, data):
-        super().__init__(user=UserView(data))
+        super().__init__(post=PostView(data))
 
 
 # The "Page Response" model is a generic model used to define how a
@@ -87,9 +73,9 @@ class UserSingleResponse(CruddyGenericModel):
 # files as it necessarily leverages the "View" model as an embedded
 # component of data serialization. The "View" model in this case
 # representing each singleton record within the "get many" list.
-class UserPageResponse(CruddyGenericModel):
-    users: List[UserView]
+class PostPageResponse(CruddyGenericModel):
+    posts: List[PostView]
     meta: MetaObject
 
     def __init__(self, data: List[T] = [], meta: MetaObject = MetaObject()):
-        super().__init__(users=map(lambda x: UserView(x), data), meta=meta)
+        super().__init__(posts=map(lambda x: PostView(x), data), meta=meta)
