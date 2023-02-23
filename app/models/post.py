@@ -1,4 +1,5 @@
 from typing import Optional, TypeVar, List, TYPE_CHECKING
+from datetime import datetime
 from sqlmodel import Field, Relationship
 from app.utils.cruddy import UUID, CruddyGenericModel, CruddyModel, CruddyUUIDModel
 from app.schemas.response import MetaObject
@@ -29,7 +30,6 @@ class PostUpdate(CruddyModel):
 # well as one-time writeable fields.
 class PostCreate(PostUpdate):
     user_id: UUID = Field(foreign_key="User.id")
-    user: "User" = Relationship(back_populates="posts")
 
 
 # The "View" model describes all fields that should typcially be present
@@ -37,9 +37,14 @@ class PostCreate(PostUpdate):
 # the identity field for the model, as well as any server-side fields that
 # are important but tamper resistant, such as created_at or updated_at
 # fields. This should be used when defining single responses and paged
-# responses, as in the schemas below.
-class PostView(CruddyUUIDModel, PostCreate):
-    pass
+# responses, as in the schemas below. To support column clipping, all
+# fields need to be optional.
+class PostView(CruddyUUIDModel):
+    id: Optional[UUID]
+    user_id: Optional[UUID]
+    content: Optional[str]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
 
 
 # The "Base" model describes the actual table as it should be reflected in
@@ -47,8 +52,9 @@ class PostView(CruddyUUIDModel, PostCreate):
 # in JSON representations, as it may contain hidden fields like passwords
 # or other server-internal state or tracking information. Keep your "Base"
 # models separated from all other interactive derivations.
-class Post(PostView, table=True):
-    pass
+class Post(CruddyUUIDModel, PostCreate, table=True):
+    # is the below needed??
+    user: "User" = Relationship(back_populates="posts")
 
 
 # The "Single Response" model is a generic model used to define how a
@@ -60,8 +66,9 @@ class Post(PostView, table=True):
 class PostSingleResponse(CruddyGenericModel):
     post: Optional[PostView] = None
 
-    def __init__(self, data):
-        super().__init__(post=PostView(data))
+    # We have to overload this init function, as cruddy gives us "data" but super wants a class field
+    def __init__(self, data=None, post=None):
+        super().__init__(post=PostView(**data.dict()) if data != None else post)
 
 
 # The "Page Response" model is a generic model used to define how a
@@ -77,5 +84,11 @@ class PostPageResponse(CruddyGenericModel):
     posts: List[PostView]
     meta: MetaObject
 
-    def __init__(self, data: List[T] = [], meta: MetaObject = MetaObject()):
-        super().__init__(posts=map(lambda x: PostView(x), data), meta=meta)
+    # We have to overload this init function, as cruddy gives us "data" but super wants a class field
+    def __init__(self, data: List[T] = [], posts=None, meta: MetaObject = MetaObject()):
+        super().__init__(
+            posts=list(map(lambda x: PostView(**x._mapping), data))
+            if posts == None
+            else posts,
+            meta=meta,
+        )

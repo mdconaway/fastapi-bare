@@ -10,6 +10,9 @@ from starlette_session import SessionMiddleware
 from starlette_session.backends import BackendType
 from datetime import timedelta
 
+# from app.resources.user import resource as UserResource
+# from app.resources.post import resource as PostResource
+
 app = FastAPI(title=general.PROJECT_NAME, version=general.API_VERSION)
 
 
@@ -60,4 +63,16 @@ async def bootstrap():
     logger.info(
         "{0}, {1}: Bootstrap complete".format(general.PROJECT_NAME, general.API_VERSION)
     )
+
+    # await UserResource.repository.create(data=UserResource.repository.model(
+    #    first_name="bilbo",
+    #    last_name="baggins",
+    #    email="bilbo@baggins.net",
+    #    hashed_password="83hpio;a8dsnv900q9j309nq3ap97hq9hf;84pt9q84fo;a8ehf"
+    # ))
+
+    # await PostResource.repository.create(data=PostResource.repository.model(
+    #    user_id="01867bc5-2e32-72e5-af51-348500e5fca6",
+    #    content="Bilbo was here"
+    # ))
     # You can do any init hooks below

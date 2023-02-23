@@ -2,7 +2,7 @@ from typing import Optional, TypeVar, List, TYPE_CHECKING
 from datetime import datetime
 from sqlmodel import Field, Relationship, Column, DateTime
 from pydantic import EmailStr
-from app.utils.cruddy import CruddyGenericModel, CruddyModel, CruddyUUIDModel
+from app.utils.cruddy import UUID, CruddyGenericModel, CruddyModel, CruddyUUIDModel
 from app.schemas.response import MetaObject
 
 if TYPE_CHECKING:
@@ -51,9 +51,22 @@ class UserCreate(UserUpdate):
 # the identity field for the model, as well as any server-side fields that
 # are important but tamper resistant, such as created_at or updated_at
 # fields. This should be used when defining single responses and paged
-# responses, as in the schemas below.
-class UserView(CruddyUUIDModel, UserCreate):
-    posts: List["Post"] = Relationship(back_populates="user")
+# responses, as in the schemas below. To support column clipping, all
+# fields need to be optional.
+class UserView(CruddyUUIDModel):
+    id: Optional[UUID]
+    first_name: Optional[str]
+    last_name: Optional[str]
+    email: Optional[EmailStr]
+    is_active: Optional[bool]
+    is_superuser: Optional[bool]
+    birthdate: Optional[datetime]
+    phone: Optional[str]
+    state: Optional[str]
+    country: Optional[str]
+    address: Optional[str]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
 
 
 # The "Base" model describes the actual table as it should be reflected in
@@ -61,8 +74,9 @@ class UserView(CruddyUUIDModel, UserCreate):
 # in JSON representations, as it may contain hidden fields like passwords
 # or other server-internal state or tracking information. Keep your "Base"
 # models separated from all other interactive derivations.
-class User(UserView, table=True):
+class User(CruddyUUIDModel, UserCreate, table=True):
     hashed_password: Optional[str] = Field(nullable=False, index=True)
+    posts: List["Post"] = Relationship(back_populates="user")
 
 
 # The "Single Response" model is a generic model used to define how a
@@ -74,8 +88,8 @@ class User(UserView, table=True):
 class UserSingleResponse(CruddyGenericModel):
     user: Optional[UserView] = None
 
-    def __init__(self, data):
-        super().__init__(user=UserView(data))
+    def __init__(self, data=None, user=None):
+        super().__init__(user=UserView(**data.dict()) if data != None else user)
 
 
 # The "Page Response" model is a generic model used to define how a
@@ -91,5 +105,10 @@ class UserPageResponse(CruddyGenericModel):
     users: List[UserView]
     meta: MetaObject
 
-    def __init__(self, data: List[T] = [], meta: MetaObject = MetaObject()):
-        super().__init__(users=map(lambda x: UserView(x), data), meta=meta)
+    def __init__(self, data: List[T] = [], users=None, meta: MetaObject = MetaObject()):
+        super().__init__(
+            users=list(map(lambda x: UserView(**x._mapping), data))
+            if users == None
+            else users,
+            meta=meta,
+        )

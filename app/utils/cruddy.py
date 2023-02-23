@@ -20,10 +20,10 @@ from sqlalchemy import (
     column,
 )
 from sqlalchemy.sql import select
-from sqlalchemy.orm import sessionmaker, declared_attr
+from sqlalchemy.orm import sessionmaker, declared_attr, selectinload
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from contextlib import asynccontextmanager
-from sqlmodel import text
+from sqlmodel import text, inspect
 from sqlmodel.ext.asyncio.session import AsyncSession
 from types import ModuleType
 from typing import Union, TypeVar, Optional, Generic, List, Dict
@@ -184,7 +184,8 @@ T = TypeVar("T")
 
 
 class CruddyGenericModel(GenericModel, Generic[T]):
-    pass
+    def __init__(self, *args, **kwargs):
+        return super().__init__(*args, **kwargs)
 
 
 class BulkDTO(CruddyGenericModel):
@@ -273,7 +274,7 @@ def asemblePolicies(*args: (List)):
 
 
 def Controller(
-    repository=...,
+    repository: "AbstractRepository" = ...,
     prefix="/example",
     tags=["example"],
     id_type=int,
@@ -375,8 +376,20 @@ def Controller(
 # REPOSITORY MANAGER
 # -------------------------------------------------------------------------------------------
 class AbstractRepository:
+    adapter: "PostgresqlAdapter"
+    update_model: CruddyModel
+    create_model: CruddyModel
+    model: CruddyModel
+    id_type: Union[UUID, int]
+    op_map: Dict
+
     def __init__(
-        self, adapter=..., update_model=..., create_model=..., model=..., id_type=int
+        self,
+        adapter: "PostgresqlAdapter" = ...,
+        update_model: CruddyModel = ...,
+        create_model: CruddyModel = ...,
+        model: CruddyModel = ...,
+        id_type: Union[UUID, int] = int,
     ):
         self.adapter = adapter
         self.update_model = update_model
@@ -389,137 +402,127 @@ class AbstractRepository:
             "*not": not_,
         }
 
-        async def create(data: create_model):
-            # create user data
-            async with adapter.getSession() as session:
-                record = model(**data.dict())
-                await session.add(record)
+    async def create(self, data: CruddyModel):
+        # create user data
+        print(data)
+        async with self.adapter.getSession() as session:
+            record = self.model(**data.dict())
+            session.add(record)
+        return record
+        # return a value?
+
+    async def get_by_id(self, id: Union[UUID, int]):
+        # retrieve user data by id
+        query = select(self.model).where(self.model.id == id)
+        async with self.adapter.getSession() as session:
+            result = (await session.execute(query)).scalar_one_or_none()
+        return result
+
+    async def update(self, id: Union[UUID, int], data: CruddyModel):
+        # update user data
+        query = (
+            _update(self.model)
+            .where(self.model.id == id)
+            .values(**data.dict())
+            .execution_options(synchronize_session="fetch")
+        )
+        async with self.adapter.getSession() as session:
+            result = await session.execute(query)
+
+        if result.rowcount == 1:
+            return await self.get_by_id(id=id)
+
+        return None
+        # return a value?
+
+    async def delete(self, id: Union[UUID, int]):
+        # delete user data by id
+        record = await self.get_by_id(id=id)
+        query = (
+            _delete(self.model)
+            .where(self.model.id == id)
+            .execution_options(synchronize_session="fetch")
+        )
+        async with self.adapter.getSession() as session:
+            result = await session.execute(query)
+
+        if result.rowcount == 1:
             return record
-            # return a value?
 
-        self.create = create
+        return None
+        # return a value?
 
-        async def get_by_id(id: id_type):
-            # retrieve user data by id
-            query = select(model).where(model.id == id)
-            async with adapter.getSession() as session:
-                result = (await session.execute(query)).scalar_one_or_none()
-            return result
+    async def get_all(
+        self,
+        page: int = 1,
+        limit: int = 10,
+        columns: List[str] = None,
+        sort: List[str] = None,
+        where: Json = None,
+    ):
+        select_columns = (
+            list(map(lambda x: column(x), columns))
+            if columns is not None and columns != []
+            else "*"
+        )
+        query = select(from_obj=self.model, columns=select_columns)
 
-        self.get_by_id = get_by_id
+        # build an arbitrarily deep query with a JSON dictionary
+        # a query object is a JSON object that generally looks like
+        # all boolean operators, or field level operators, begin with a
+        # * character. This will nearly always translate down to the sqlalchemy
+        # level, where it is up to the model class to determine what operations
+        # are possible on each model attribute.
+        # The top level query object is an implicit AND.
+        # To do an OR, the base key of the search must be *or, as below examples:
+        # {"*or":{"first_name":"bilbo","last_name":"baggins"}}
+        # {"*or":{"first_name":{"*contains":"bilbo"},"last_name":"baggins"}}
+        # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":{"email":{"*contains":"@"},"first_name":{"*contains":"helga"}}}}
+        # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":[{"email":{"*contains":"@"}},{"email":{"*contains":"helga"}}]}}
+        # The following query would be an implicit *and:
+        # [{"first_name":{"*endswith":"bilbo"}},{"last_name":"baggins"}]
+        # As would the following query:
+        # {"first_name":{"*endswith":"bilbo"},"last_name":"baggins"}
+        if isinstance(where, dict) or isinstance(where, list):
+            query = query.filter(and_(*self.query_forge(model=self.model, where=where)))
 
-        async def update(id: id_type, data: update_model):
-            # update user data
-            query = (
-                _update(model)
-                .where(model.id == id)
-                .values(**data.dict())
-                .execution_options(synchronize_session="fetch")
-            )
-            async with adapter.getSession() as session:
-                result = await session.execute(query)
+        # select sort dynamically
+        if sort is not None and sort != []:
+            # we need sort format data like this --> ['id asc','name desc', 'email']
+            def splitter(sort_string: str):
+                parts = sort_string.split(" ")
+                getter = "asc"
+                if len(parts) == 2:
+                    getter = parts[1]
+                return getattr(getattr(self.model, parts[0]), getter)
 
-            if result.rowcount == 1:
-                return await self.get_by_id(id=id)
+            sorts = list(map(splitter, sort))
+            for field in sorts:
+                query = query.order_by(field())
 
-            return None
-            # return a value?
+        # count query
+        count_query = select(func.count(1)).select_from(query)
+        offset_page = page - 1
+        # pagination
+        query = query.offset(offset_page * limit).limit(limit)
+        # total record
 
-        self.update = update
+        async with self.adapter.getSession() as session:
+            total_record = (await session.execute(count_query)).scalar() or 0
+            # result
+            result = (await session.execute(query)).fetchall()
 
-        async def delete(id: id_type):
-            # delete user data by id
-            record = await self.get_by_id(id=id)
-            query = (
-                _delete(model)
-                .where(model.id == id)
-                .execution_options(synchronize_session="fetch")
-            )
-            async with adapter.getSession() as session:
-                result = await session.execute(query)
-
-            if result.rowcount == 1:
-                return record
-
-            return None
-            # return a value?
-
-        self.delete = delete
-
-        async def get_all(
-            page: int = 1,
-            limit: int = 10,
-            columns: List[str] = None,
-            sort: List[str] = None,
-            where: Json = None,
-        ):
-            select_columns = (
-                list(map(lambda x: column(x), columns))
-                if columns is not None and columns != []
-                else "*"
-            )
-            query = select(from_obj=model, columns=select_columns)
-
-            # build an arbitrarily deep query with a JSON dictionary
-            # a query object is a JSON object that generally looks like
-            # all boolean operators, or field level operators, begin with a
-            # * character. This will nearly always translate down to the sqlalchemy
-            # level, where it is up to the model class to determine what operations
-            # are possible on each model attribute.
-            # The top level query object is an implicit AND.
-            # To do an OR, the base key of the search must be *or, as below examples:
-            # {"*or":{"first_name":"bilbo","last_name":"baggins"}}
-            # {"*or":{"first_name":{"*contains":"bilbo"},"last_name":"baggins"}}
-            # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":{"email":{"*contains":"@"},"first_name":{"*contains":"helga"}}}}
-            # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":[{"email":{"*contains":"@"}},{"email":{"*contains":"helga"}}]}}
-            # The following query would be an implicit *and:
-            # [{"first_name":{"*endswith":"bilbo"}},{"last_name":"baggins"}]
-            # As would the following query:
-            # {"first_name":{"*endswith":"bilbo"},"last_name":"baggins"}
-            if isinstance(where, dict) or isinstance(where, list):
-                query = query.filter(and_(*self.query_forge(model=model, where=where)))
-
-            # select sort dynamically
-            if sort is not None and sort != []:
-                # we need sort format data like this --> ['id asc','name desc', 'email']
-                def splitter(sort_string: str):
-                    parts = sort_string.split(" ")
-                    getter = "asc"
-                    if len(parts) == 2:
-                        getter = parts[1]
-                    return getattr(getattr(self.model, parts[0]), getter)
-
-                sorts = list(map(splitter, sort))
-                for field in sorts:
-                    query = query.order_by(field())
-
-            # count query
-            count_query = select(func.count(1)).select_from(query)
-            offset_page = page - 1
-            # pagination
-            query = query.offset(offset_page * limit).limit(limit)
-            # total record
-
-            async with adapter.getSession() as session:
-                total_record = (await session.execute(count_query)).scalar() or 0
-                # result
-                result = (await session.execute(query)).fetchall()
-
-            # possible pass in outside functions to map/alter data?
-            # total page
-            total_page = math.ceil(total_record / limit)
-            return BulkDTO(
-                total_pages=total_page, total_records=total_record, data=result
-            )
-
-        self.get_all = get_all
+        # possible pass in outside functions to map/alter data?
+        # total page
+        total_page = math.ceil(total_record / limit)
+        return BulkDTO(total_pages=total_page, total_records=total_record, data=result)
 
     # Initial, simple, query forge. Invalid attrs or ops are just dropped.
     # Improvements to make:
     # 1. Table joins for relationships.
     # 2. Make relationships searchable too!
     # 3. Maybe throw an error if a bad search field is sent? (Will help UI devs)
-    def query_forge(self, model, where: Union[Dict, List[Dict]]):
+    def query_forge(self, model: CruddyModel, where: Union[Dict, List[Dict]]):
         level_criteria = []
         if not (isinstance(where, list) or isinstance(where, dict)):
             return []
@@ -628,11 +631,16 @@ class PostgresqlAdapter:
 # -------------------------------------------------------------------------------------------
 # APPLICATION RESOURCE
 # -------------------------------------------------------------------------------------------
-# Next step: add input parameter for adding policies to each action
+# Next step: Track all resources for relationship loading?
+
+
 class Resource:
+    _registry: "ResourceRegistry" = None
     adapter: PostgresqlAdapter = None
     repository: AbstractRepository = None
     controller: APIRouter = None
+    needs: Dict = {}
+    is_ready: bool = False
 
     def __init__(
         self,
@@ -647,7 +655,7 @@ class Resource:
         response_meta_schema=MetaObject,
         resource_update_model=ExampleUpdate,
         resource_create_model=ExampleCreate,
-        resource_model=Example,
+        resource_model: CruddyModel = Example,
         id_type=int,
         policies_universal=[],
         policies_create=[],
@@ -687,6 +695,63 @@ class Resource:
             policies_get_many=policies_get_many,
         )
 
+        self.is_ready = False
+        self._registry.register(res=self)
+
+    # This function will expand the controller to perform additional
+    # actions like loading relationships, or inserting links?
+    # Potential to hoist additional routes for relational sub-routes
+    # on the CRUD controller? Does that require additional policies??
+    def inject_need(self, foreign_resource: "Resource"):
+        pass
+
+    @staticmethod
+    def _set_registry(reg: "ResourceRegistry" = ...):
+        Resource._registry = reg
+
+
+# This needs a lot of work...
+class ResourceRegistry:
+    _resources: List = []
+    _base_models: Dict = {}
+    _resources_via_models: Dict = {}
+    _incomplete_resources = {}
+
+    def __init__(self):
+        self._resources = []
+        self._base_models = {}
+        self._resources_via_models = {}
+        self._incomplete_resources = {}
+
+    # This method needs to build all the lists and dictionaries
+    # needed to efficiently search between models to conduct relational
+    # joins and controller expansion. Is invoked by each resource as it
+    # is created.
+    def register(self, res: Resource = None):
+        base_model = res.repository.model
+        map_name = base_model.__class__.__name__
+        self._base_models[map_name] = base_model
+        self._resources_via_models[map_name] = res
+        self._resources.append(res)
+        # print('resolved?')
+
+    # This method can't be invoked until SQL Alchemy is done lazily
+    # building the ORM class mappers. Until that action is complete,
+    # relationships cannot be discovered via the inspector.
+    # May require some though to setup correctly. Needs to occur
+    # after mapper construction, but before FastAPI "swaggers"
+    # the API.
+    def resolve(self):
+        for resource in self._resources:
+            base_model = resource.repository.model
+            map_name = base_model.__class__.__name__
+            inspected = inspect(base_model)
+            relationship_names = inspected.relationships.items()
+            # print(inspected.relationships.items())
+
+
+CruddyResourceRegistry = ResourceRegistry()
+Resource._set_registry(reg=CruddyResourceRegistry)
 
 # -------------------------------------------------------------------------------------------
 # END APPLICATION RESOURCE
