@@ -60,11 +60,9 @@ async def bootstrap():
 
     app.include_router(ApplicationRouter)
     # FastAPICache.init(RedisBackend(redis_client), prefix="fastapi-cache")
-    logger.info(
-        "{0}, {1}: Bootstrap complete".format(general.PROJECT_NAME, general.API_VERSION)
-    )
+    logger.info(f"{general.PROJECT_NAME}, {general.API_VERSION}: Bootstrap complete")
 
-    # await UserResource.repository.create(data=UserResource.repository.model(
+    # new_user = await UserResource.repository.create(data=UserResource.repository.model(
     #    first_name="bilbo",
     #    last_name="baggins",
     #    email="bilbo@baggins.net",
@@ -72,7 +70,7 @@ async def bootstrap():
     # ))
 
     # await PostResource.repository.create(data=PostResource.repository.model(
-    #    user_id="01867bc5-2e32-72e5-af51-348500e5fca6",
+    #    user_id=new_user.id,
     #    content="Bilbo was here"
     # ))
     # You can do any init hooks below
