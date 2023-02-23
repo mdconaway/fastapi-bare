@@ -2,6 +2,7 @@
 # Love,
 # A Sails / Ember lover.
 
+import asyncio
 import math
 import os
 import sys
@@ -712,12 +713,14 @@ class Resource:
 
 # This needs a lot of work...
 class ResourceRegistry:
+    _resolver_invoked: bool = False
     _resources: List = []
     _base_models: Dict = {}
     _resources_via_models: Dict = {}
     _incomplete_resources = {}
 
     def __init__(self):
+        self._resolver_invoked = False
         self._resources = []
         self._base_models = {}
         self._resources_via_models = {}
@@ -733,6 +736,12 @@ class ResourceRegistry:
         self._base_models[map_name] = base_model
         self._resources_via_models[map_name] = res
         self._resources.append(res)
+        loop = asyncio.get_event_loop()
+        # Debounce resolving the registry to the next event loop cycle to
+        # to allow SQL Alchemy to finish mapping relationships
+        if self._resolver_invoked == False:
+            loop.call_soon_threadsafe(self.resolve)
+        self._resolver_invoked = True
         # print('resolved?')
 
     # This method can't be invoked until SQL Alchemy is done lazily
@@ -747,7 +756,7 @@ class ResourceRegistry:
             map_name = base_model.__class__.__name__
             inspected = inspect(base_model)
             relationship_names = inspected.relationships.items()
-            # print(inspected.relationships.items())
+            print(relationship_names)
 
 
 CruddyResourceRegistry = ResourceRegistry()

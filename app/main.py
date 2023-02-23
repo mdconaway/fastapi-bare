@@ -46,7 +46,7 @@ async def bootstrap():
         max_age=timedelta(days=int(sessions.SESSION_MAX_AGE)),  # in seconds
     )
 
-    # This enabled Depends to access the DB from controllers
+    # This enables "Depends" to access the DB from controllers
     app.add_middleware(
         SQLAlchemyMiddleware,
         db_url=adapters.DATABASE_URI,
