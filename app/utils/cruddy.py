@@ -337,7 +337,7 @@ def _ControllerConfigManyToOne(
 
         # Build a query to use foreign resource to find related objects
         where = {far_col_name: {"*eq": origin_record.dict()[near_col_name]}}
-        
+
         # Collect the bulk data transfer object from the query
         result: BulkDTO = await config.foreign_resource.repository.get_all(
             page=1, limit=1, columns=columns, sort=None, where=where
@@ -347,8 +347,8 @@ def _ControllerConfigManyToOne(
         data = None
         if len(result.data) != 0:
             data = result.data[0]
-        
-        # Invoke the dynamically built 
+
+        # Invoke the dynamically built
         return config.foreign_resource.schemas["single"](data=data)
 
 
@@ -647,7 +647,7 @@ class AbstractRepository:
                 k2 = list(v.keys())[0]
                 v2 = v[k2]
                 mattr = getattr(model, k)
-                if isinstance(k2, str) and not isinstance(v2, dict)and k2[0] == "*":
+                if isinstance(k2, str) and not isinstance(v2, dict) and k2[0] == "*":
                     if k2 == "*eq":
                         level_criteria.append(mattr == v2)
                     elif k2 == "*neq":
@@ -1109,7 +1109,7 @@ def CreateRouterFromResources(
         module = m[1]
         resource = getattr(module, common_resource_name)
 
-        def setup(router=router, resource=resource):
+        def setup(router: APIRouter = router, resource: "Resource" = resource):
             router.include_router(getattr(resource, "controller"))
 
         resource._on_resolution = setup
