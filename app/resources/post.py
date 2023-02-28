@@ -4,8 +4,7 @@ from app.models.post import (
     Post,
     PostCreate,
     PostUpdate,
-    PostSingleResponse,
-    PostPageResponse,
+    PostView,
 )
 from app.schemas.response import MetaObject
 from app.policies.verify_session import verify_session
@@ -13,10 +12,9 @@ from app.policies.verify_session import verify_session
 
 resource = Resource(
     adapter=postgresql,
-    prefix="/post",
+    path="/posts",
     tags=["post"],
-    response_single_schema=PostSingleResponse,
-    response_many_schema=PostPageResponse,
+    response_schema=PostView,
     response_meta_schema=MetaObject,
     resource_update_model=PostUpdate,
     resource_create_model=PostCreate,

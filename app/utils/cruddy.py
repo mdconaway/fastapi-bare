@@ -8,6 +8,7 @@ import os
 import sys
 import glob
 import importlib.util
+import inflect
 from os import path
 from fastapi import APIRouter, Path, Query, Depends
 from sqlalchemy import (
@@ -21,17 +22,28 @@ from sqlalchemy import (
     column,
 )
 from sqlalchemy.sql import select
-from sqlalchemy.orm import sessionmaker, declared_attr, selectinload
+from sqlalchemy.sql.schema import Column, ForeignKey
+from sqlalchemy.orm import (
+    sessionmaker,
+    declared_attr,
+    RelationshipProperty,
+    selectinload,
+    ONETOMANY,
+    MANYTOMANY,
+    MANYTOONE,
+)
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from contextlib import asynccontextmanager
 from sqlmodel import text, inspect
 from sqlmodel.ext.asyncio.session import AsyncSession
 from types import ModuleType
-from typing import Union, TypeVar, Optional, Generic, List, Dict
+from typing import Any, Union, TypeVar, Optional, Generic, List, Dict, Callable
+from pydantic import create_model, AnyUrl, DirectoryPath
 from pydantic.generics import GenericModel
 from pydantic.types import Json
 from sqlmodel import Field, SQLModel
 from datetime import datetime
+
 
 # For UUID...
 import secrets
@@ -42,6 +54,7 @@ from typing import Tuple
 # Look into this for making generic factories??
 # https://shanenullain.medium.com/abstract-factory-in-python-with-generic-typing-b9ceca2bf89e
 
+pluralizer = inflect.engine()
 
 # -------------------------------------------------------------------------------------------
 # DATABASE UUID CLASSES
@@ -184,6 +197,15 @@ def uuid7() -> UUID:
 T = TypeVar("T")
 
 
+class RelationshipConfig:
+    orm_relationship: RelationshipProperty = None
+    foreign_resource: "Resource" = None
+
+    def __init__(self, orm_relationship=None, foreign_resource=None):
+        self.orm_relationship = orm_relationship
+        self.foreign_resource = foreign_resource
+
+
 class CruddyGenericModel(GenericModel, Generic[T]):
     def __init__(self, *args, **kwargs):
         return super().__init__(*args, **kwargs)
@@ -266,7 +288,7 @@ class Example(
 # -------------------------------------------------------------------------------------------
 # CONTROLLER / ROUTER
 # -------------------------------------------------------------------------------------------
-def asemblePolicies(*args: (List)):
+def assemblePolicies(*args: (List)):
     merged = []
     for policy_set in args:
         for individual_policy in policy_set:
@@ -274,16 +296,72 @@ def asemblePolicies(*args: (List)):
     return merged
 
 
-def Controller(
+def _ControllerConfigManyToOne(
+    controller: APIRouter = ...,
     repository: "AbstractRepository" = ...,
-    prefix="/example",
-    tags=["example"],
-    id_type=int,
+    id_type: Union[UUID, int] = ...,
+    relationship_prop: str = ...,
+    config: RelationshipConfig = ...,
+    policies_universal: List = ...,
+    policies_get_one: List = ...,
+):
+    col: Column = next(iter(config.orm_relationship.local_columns))
+    far_side: ForeignKey = next(iter(col.foreign_keys))
+    far_col: Column = far_side.column
+    far_col_name = far_col.name
+    near_col_name = col.name
+
+    # Merge three policy sets onto this endpoint:
+    # 1. Universal policies
+    # 2. Primary resource policies
+    # 3. Related resource policies
+    @controller.get(
+        f'/{"{id}"}/{relationship_prop}',
+        response_model=config.foreign_resource.schemas["single"],
+        response_model_exclude_none=True,
+        dependencies=assemblePolicies(
+            policies_universal,
+            policies_get_one,
+            config.foreign_resource.policies["get_one"],
+        ),
+    )
+    async def get_many_to_one(
+        id: id_type = Path(..., alias="id"),
+        columns: List[str] = Query(None, alias="columns"),
+    ):
+        origin_record = await repository.get_by_id(id=id)
+
+        # Consider raising 404 here and in get by ID
+        if origin_record == None:
+            return config.foreign_resource.schemas["single"](data=None)
+
+        # Build a query to use foreign resource to find related objects
+        where = {far_col_name: {"*eq": origin_record.dict()[near_col_name]}}
+        
+        # Collect the bulk data transfer object from the query
+        result: BulkDTO = await config.foreign_resource.repository.get_all(
+            page=1, limit=1, columns=columns, sort=None, where=where
+        )
+
+        # If we get a result, grab the first value. There should only be one in many to one.
+        data = None
+        if len(result.data) != 0:
+            data = result.data[0]
+        
+        # Invoke the dynamically built 
+        return config.foreign_resource.schemas["single"](data=data)
+
+
+def ControllerCongifurator(
+    controller: APIRouter = ...,
+    repository: "AbstractRepository" = ...,
+    id_type: Union[UUID, int] = int,
     single_schema=ResponseSchema,
     many_schema=PageResponse,
     meta_schema=MetaObject,
     update_model=ExampleUpdate,
     create_model=ExampleCreate,
+    relations: Dict[str, RelationshipConfig] = ...,
     policies_universal=[],
     policies_create=[],
     policies_update=[],
@@ -291,14 +369,11 @@ def Controller(
     policies_get_one=[],
     policies_get_many=[],
 ) -> APIRouter:
-
-    controller = APIRouter(prefix=prefix, tags=tags)
-
     @controller.post(
         "",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(policies_universal, policies_create),
+        dependencies=assemblePolicies(policies_universal, policies_create),
     )
     async def create(data: create_model):
         data = await repository.create(data=data)
@@ -309,7 +384,7 @@ def Controller(
         "/{id}",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(policies_universal, policies_update),
+        dependencies=assemblePolicies(policies_universal, policies_update),
     )
     async def update(id: id_type = Path(..., alias="id"), *, data: update_model):
         data = await repository.update(id=id, data=data)
@@ -320,7 +395,7 @@ def Controller(
         "/{id}",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(policies_universal, policies_delete),
+        dependencies=assemblePolicies(policies_universal, policies_delete),
     )
     async def delete(
         id: id_type = Path(..., alias="id"),
@@ -333,7 +408,7 @@ def Controller(
         "/{id}",
         response_model=single_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(policies_universal, policies_get_one),
+        dependencies=assemblePolicies(policies_universal, policies_get_one),
     )
     async def get_by_id(id: id_type = Path(..., alias="id")):
         data = await repository.get_by_id(id=id)
@@ -343,7 +418,7 @@ def Controller(
         "",
         response_model=many_schema,
         response_model_exclude_none=True,
-        dependencies=asemblePolicies(policies_universal, policies_get_many),
+        dependencies=assemblePolicies(policies_universal, policies_get_many),
     )
     async def get_all(
         page: int = 1,
@@ -365,6 +440,25 @@ def Controller(
             meta=meta_schema(**meta),
             data=result.data,
         )
+
+    # Add relationship link endpoints starting here...
+
+    for key, config in relations.items():
+        if config.orm_relationship.direction == ONETOMANY:
+            print("To Implement: One to Many")
+        elif config.orm_relationship.direction == MANYTOMANY:
+            print("To Implement: Many to Many")
+            print("To Implement: Many to Many Through Association Object")
+        elif config.orm_relationship.direction == MANYTOONE:
+            _ControllerConfigManyToOne(
+                controller=controller,
+                repository=repository,
+                id_type=id_type,
+                relationship_prop=key,
+                config=config,
+                policies_universal=policies_universal,
+                policies_get_one=policies_get_one,
+            )
 
     return controller
 
@@ -405,7 +499,7 @@ class AbstractRepository:
 
     async def create(self, data: CruddyModel):
         # create user data
-        print(data)
+        # print(data)
         async with self.adapter.getSession() as session:
             record = self.model(**data.dict())
             session.add(record)
@@ -553,13 +647,21 @@ class AbstractRepository:
                 k2 = list(v.keys())[0]
                 v2 = v[k2]
                 mattr = getattr(model, k)
-                if (
-                    isinstance(k2, str)
-                    and not isinstance(v2, dict)
-                    and k2[0] == "*"
-                    and hasattr(mattr, k2.replace("*", ""))
-                ):
-                    level_criteria.append(getattr(mattr, k2.replace("*", ""))(v2))
+                if isinstance(k2, str) and not isinstance(v2, dict)and k2[0] == "*":
+                    if k2 == "*eq":
+                        level_criteria.append(mattr == v2)
+                    elif k2 == "*neq":
+                        level_criteria.append(mattr != v2)
+                    elif k2 == "*gt":
+                        level_criteria.append(mattr > v2)
+                    elif k2 == "*lt":
+                        level_criteria.append(mattr < v2)
+                    elif k2 == "*gte":
+                        level_criteria.append(mattr >= v2)
+                    elif k2 == "*lte":
+                        level_criteria.append(mattr <= v2)
+                    elif hasattr(mattr, k2.replace("*", "")):
+                        level_criteria.append(getattr(mattr, k2.replace("*", ""))(v2))
         return level_criteria
 
 
@@ -632,16 +734,24 @@ class PostgresqlAdapter:
 # -------------------------------------------------------------------------------------------
 # APPLICATION RESOURCE
 # -------------------------------------------------------------------------------------------
-# Next step: Track all resources for relationship loading?
+# Next step: Allow overrides for response format and controller configurator?
 
 
 class Resource:
     _registry: "ResourceRegistry" = None
+    _link_prefix: str = ""
+    _relations: Dict[str, RelationshipConfig] = {}
+    _resource_path: str = "/example"
+    _tags: List[str] = ["example"]
+    _response_schema: CruddyModel = None
+    _meta_schema: CruddyGenericModel = None
+    _id_type: Union[UUID, int] = int
+    _on_resolution: Union[Callable, None] = None
     adapter: PostgresqlAdapter = None
     repository: AbstractRepository = None
     controller: APIRouter = None
-    needs: Dict = {}
-    is_ready: bool = False
+    policies: Dict[str, List[Callable]] = None
+    schemas: Dict[str, GenericModel] = None
 
     def __init__(
         self,
@@ -649,22 +759,40 @@ class Resource:
         connection_uri="",
         pool_size=4,
         max_overflow=64,
-        prefix="/example",
+        link_prefix="",
+        path="/example",
         tags=["example"],
-        response_single_schema=ResponseSchema,
-        response_many_schema=PageResponse,
+        response_schema=ResponseSchema,
         response_meta_schema=MetaObject,
         resource_update_model=ExampleUpdate,
         resource_create_model=ExampleCreate,
         resource_model: CruddyModel = Example,
         id_type=int,
-        policies_universal=[],
-        policies_create=[],
-        policies_update=[],
-        policies_delete=[],
-        policies_get_one=[],
-        policies_get_many=[],
+        policies_universal: List[Callable] = [],
+        policies_create: List[Callable] = [],
+        policies_update: List[Callable] = [],
+        policies_delete: List[Callable] = [],
+        policies_get_one: List[Callable] = [],
+        policies_get_many: List[Callable] = [],
     ):
+        self._on_resolution = None
+        self._link_prefix = link_prefix
+        self._resource_path = path
+        self._tags = tags
+        self._response_schema = response_schema
+        self._meta_schema = response_meta_schema
+        self._id_type = id_type
+        self._relations = {}
+
+        self.policies = {
+            "universal": policies_universal,
+            "create": policies_create,
+            "update": policies_update,
+            "delete": policies_delete,
+            "get_one": policies_get_one,
+            "get_many": policies_get_many,
+        }
+
         if None == adapter:
             self.adapter = PostgresqlAdapter(connection_uri, pool_size, max_overflow)
         else:
@@ -678,53 +806,203 @@ class Resource:
             id_type=id_type,
         )
 
-        self.controller = Controller(
-            repository=self.repository,
-            prefix=prefix,
-            tags=tags,
-            id_type=id_type,
-            single_schema=response_single_schema,
-            many_schema=response_many_schema,
-            meta_schema=response_meta_schema,
-            update_model=resource_update_model,
-            create_model=resource_create_model,
-            policies_universal=policies_universal,
-            policies_create=policies_create,
-            policies_update=policies_update,
-            policies_delete=policies_delete,
-            policies_get_one=policies_get_one,
-            policies_get_many=policies_get_many,
-        )
+        self.controller = APIRouter(prefix=self._resource_path, tags=self._tags)
 
-        self.is_ready = False
         self._registry.register(res=self)
 
     # This function will expand the controller to perform additional
     # actions like loading relationships, or inserting links?
     # Potential to hoist additional routes for relational sub-routes
     # on the CRUD controller? Does that require additional policies??
-    def inject_need(self, foreign_resource: "Resource"):
-        pass
+    def inject_relationship(
+        self, relationship: RelationshipProperty, foreign_resource: "Resource"
+    ):
+        self._relations[relationship.key + ""] = RelationshipConfig(
+            orm_relationship=relationship, foreign_resource=foreign_resource
+        )
+        # print(relationship, foreign_resource)
+        # print(relationship.key)
+        # print(relationship.direction.name)
+        # print(relationship.local_columns)
+        # print(relationship.local_remote_pairs)
+        # print(relationship.remote_side)
+        # print(relationship._reverse_property)
+        # print(dir(relationship))
+
+    def set_local_link_prefix(self, prefix: str):
+        self._link_prefix = prefix
+
+    # The response schema factory
+    # Converting this section a plugin pattern will allow
+    # other response formats, like JSON API.
+    # Alterations will also require ControllerConfigurator
+    # to be modified somehow...
+    def generate_response_schemas(self):
+        response_schema = self._response_schema
+        response_meta_schema = self._meta_schema
+        resource_model_name = f"{self.repository.model.__name__}".lower()
+        resource_model_plural = pluralizer.plural(resource_model_name)
+        resource_response_name = response_schema.__name__
+
+        # Create shared link model
+        link_object = {}
+        for k, v in self._relations.items():
+            link_object[k] = (str, ...)
+        link_object["__base__"] = CruddyGenericModel
+
+        def link_builder(self=self, id: Union[UUID, int] = None):
+            str_id = f"{id}"
+            new_link_object = {}
+            for k, v in self._relations.items():
+                new_link_object[
+                    k
+                ] = f"{self._link_prefix}{self._resource_path}/{str_id}/{k}"
+            return new_link_object
+
+        LinkModel = create_model(f"{resource_model_name}Links", **link_object)
+        # End shared link model
+
+        # Redefine object views
+        SingleSchemaLinked = create_model(
+            f"{resource_response_name}Linked",
+            links=(Optional[LinkModel], None),
+            __base__=response_schema,
+        )
+
+        SingleSchemaEnvelope = create_model(
+            f"{resource_response_name}Envelope",
+            **{
+                resource_model_name: (Optional[Union[SingleSchemaLinked, None]], None),
+                "__base__": CruddyGenericModel,
+            },
+        )
+
+        old_single_init = SingleSchemaEnvelope.__init__
+
+        def data_destructure(data):
+            if data == None:
+                return {}
+            elif hasattr(data, "_mapping"):
+                return data._mapping
+            if hasattr(data, "dict") and callable(data.dict):
+                return data.dict()
+            return data
+
+        def handle_data_or_none(args):
+            if args == None:
+                return {"data": None}
+
+            key_count = len(args.items())
+
+            if key_count == 0:
+                return {"data": None}
+
+            if resource_model_name in args:
+                return {resource_model_name: args[resource_model_name], "data": None}
+
+            if key_count == 1 and args["data"] == None:
+                return {"data": None}
+
+            thing_to_convert = data_destructure(args["data"])
+            id = thing_to_convert["id"]
+            return {
+                resource_model_name: SingleSchemaLinked(
+                    **thing_to_convert,
+                    links=link_builder(id=id),
+                ),
+                "data": None,
+            }
+
+        def new_single_init(self, *args, **kwargs):
+            old_single_init(
+                self,
+                *args,
+                **handle_data_or_none(kwargs),
+            )
+
+        SingleSchemaEnvelope.__init__ = new_single_init
+
+        ManySchemaEnvelope = create_model(
+            f"{resource_response_name}List",
+            **{
+                resource_model_plural: (Optional[List[SingleSchemaLinked]], None),
+                "meta": (response_meta_schema, ...),
+                "__base__": CruddyGenericModel,
+            },
+        )
+
+        old_many_init = ManySchemaEnvelope.__init__
+
+        def new_many_init(self, *args, **kwargs):
+            old_many_init(
+                self,
+                *args,
+                **{
+                    resource_model_plural: list(
+                        map(
+                            lambda x: SingleSchemaLinked(
+                                **x._mapping, links=link_builder(id=x._mapping["id"])
+                            ),
+                            kwargs["data"],
+                        )
+                    )
+                    if resource_model_plural not in kwargs
+                    else kwargs[resource_model_plural],
+                    "data": kwargs["data"] if "data" in kwargs else [],
+                    "meta": kwargs["meta"],
+                },
+            )
+
+        ManySchemaEnvelope.__init__ = new_many_init
+        # End redefine object views
+
+        self.schemas = {"single": SingleSchemaEnvelope, "many": ManySchemaEnvelope}
+
+    def resolve(self):
+        self.controller = ControllerCongifurator(
+            controller=self.controller,
+            repository=self.repository,
+            id_type=self._id_type,
+            single_schema=self.schemas["single"],
+            many_schema=self.schemas["many"],
+            meta_schema=self._meta_schema,
+            update_model=self.repository.update_model,
+            create_model=self.repository.create_model,
+            relations=self._relations,
+            policies_universal=self.policies["universal"],
+            policies_create=self.policies["create"],
+            policies_update=self.policies["update"],
+            policies_delete=self.policies["delete"],
+            policies_get_one=self.policies["get_one"],
+            policies_get_many=self.policies["get_many"],
+        )
+
+        if callable(self._on_resolution):
+            self._on_resolution()
 
     @staticmethod
     def _set_registry(reg: "ResourceRegistry" = ...):
         Resource._registry = reg
 
+    @staticmethod
+    def _set_link_prefix(prefix: str):
+        Resource._link_prefix = prefix
+
 
 # This needs a lot of work...
 class ResourceRegistry:
     _resolver_invoked: bool = False
-    _resources: List = []
-    _base_models: Dict = {}
-    _resources_via_models: Dict = {}
-    _incomplete_resources = {}
+    _resources: List[Resource] = []
+    _base_models: Dict[str, CruddyModel] = {}
+    _rels_via_models: Dict[str, Dict] = {}
+    _resources_via_models: Dict[str, Resource] = {}
 
     def __init__(self):
         self._resolver_invoked = False
         self._resources = []
         self._base_models = {}
+        self._rels_via_models = {}
         self._resources_via_models = {}
-        self._incomplete_resources = {}
 
     # This method needs to build all the lists and dictionaries
     # needed to efficiently search between models to conduct relational
@@ -732,7 +1010,7 @@ class ResourceRegistry:
     # is created.
     def register(self, res: Resource = None):
         base_model = res.repository.model
-        map_name = base_model.__class__.__name__
+        map_name = base_model.__name__
         self._base_models[map_name] = base_model
         self._resources_via_models[map_name] = res
         self._resources.append(res)
@@ -747,16 +1025,35 @@ class ResourceRegistry:
     # This method can't be invoked until SQL Alchemy is done lazily
     # building the ORM class mappers. Until that action is complete,
     # relationships cannot be discovered via the inspector.
-    # May require some though to setup correctly. Needs to occur
+    # May require some thought to setup correctly. Needs to occur
     # after mapper construction, but before FastAPI "swaggers"
     # the API.
     def resolve(self):
+        # Solve schemas
         for resource in self._resources:
+            # Get the table model the resource uses
             base_model = resource.repository.model
-            map_name = base_model.__class__.__name__
-            inspected = inspect(base_model)
-            relationship_names = inspected.relationships.items()
-            print(relationship_names)
+            # Get the human friendly name for this model
+            map_name = base_model.__name__
+            # Inspect the fully loaded model class for relationships
+            relationships = inspect(base_model).relationships
+            rel_map = {}
+            # print(map_name)
+            for relation in relationships:
+                rel_map[relation.key] = relation
+                # this seems unsafe...
+                target_resource_name = relation.entity.class_.__name__
+                target_resource = self._resources_via_models[target_resource_name]
+                resource.inject_relationship(
+                    relationship=relation, foreign_resource=target_resource
+                )
+            self._rels_via_models[map_name] = rel_map
+            resource.generate_response_schemas()
+
+        # Build routes
+        # These have to be separated to ensure all schemas are ready
+        for resource in self._resources:
+            resource.resolve()
 
 
 CruddyResourceRegistry = ResourceRegistry()
@@ -806,11 +1103,17 @@ def CreateRouterFromResources(
         application_module=application_module, sub_module_path=resource_path
     )
     router = APIRouter()
+
+    # We delay binding routes to the router until all resources are ready
     for m in modules:
         module = m[1]
-        router.include_router(
-            getattr(getattr(module, common_resource_name), "controller")
-        )
+        resource = getattr(module, common_resource_name)
+
+        def setup(router=router, resource=resource):
+            router.include_router(getattr(resource, "controller"))
+
+        resource._on_resolution = setup
+
     return router
 
 

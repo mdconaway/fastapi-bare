@@ -4,8 +4,7 @@ from app.models.user import (
     User,
     UserCreate,
     UserUpdate,
-    UserSingleResponse,
-    UserPageResponse,
+    UserView,
 )
 from app.schemas.response import MetaObject
 from app.policies.verify_session import verify_session
@@ -13,10 +12,9 @@ from app.policies.verify_session import verify_session
 
 resource = Resource(
     adapter=postgresql,
-    prefix="/user",
+    path="/users",
     tags=["user"],
-    response_single_schema=UserSingleResponse,
-    response_many_schema=UserPageResponse,
+    response_schema=UserView,
     response_meta_schema=MetaObject,
     resource_update_model=UserUpdate,
     resource_create_model=UserCreate,

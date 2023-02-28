@@ -1,8 +1,4 @@
 from app.utils.cruddy import CruddyGenericModel
-from typing import TypeVar, Optional, List
-from sqlmodel import SQLModel
-
-T = TypeVar("T")
 
 # This is an example of how to "remap" the metadata in a paged response.
 # The inputs in the first "init" are fixed, based on what CRUDDY returns,
@@ -23,14 +19,3 @@ class MetaObject(CruddyGenericModel):
         records: int = 0,
     ):
         super().__init__(page=page, limit=limit, pages=pages, records=records)
-
-
-class PageResponse(CruddyGenericModel):
-    # The response for a pagination query.
-    meta: MetaObject
-    data: List[T]
-
-
-class ResponseSchema(SQLModel):
-    # The response for a single object return
-    data: Optional[T] = None

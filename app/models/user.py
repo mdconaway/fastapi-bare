@@ -1,14 +1,11 @@
-from typing import Optional, TypeVar, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 from sqlmodel import Field, Relationship, Column, DateTime
 from pydantic import EmailStr
-from app.utils.cruddy import UUID, CruddyGenericModel, CruddyModel, CruddyUUIDModel
-from app.schemas.response import MetaObject
+from app.utils.cruddy import UUID, CruddyModel, CruddyUUIDModel
 
 if TYPE_CHECKING:
     from app.models.post import Post
-
-T = TypeVar("T")
 
 # The way the CRUD Router works, it needs an update, create, and base model.
 # If you always structure model files in this order, you can extend from the
@@ -77,38 +74,3 @@ class UserView(CruddyUUIDModel):
 class User(CruddyUUIDModel, UserCreate, table=True):
     hashed_password: Optional[str] = Field(nullable=False, index=True)
     posts: List["Post"] = Relationship(back_populates="user")
-
-
-# The "Single Response" model is a generic model used to define how a
-# singleton should be represented in JSON format when communicating between
-# the client and the server. This is essentially just a communications
-# schema, but it should be maintained in your model files as it necessarily
-# leverages the "View" model as an embedded component of data
-# serialization.
-class UserSingleResponse(CruddyGenericModel):
-    user: Optional[UserView] = None
-
-    def __init__(self, data=None, user=None):
-        super().__init__(user=UserView(**data.dict()) if data != None else user)
-
-
-# The "Page Response" model is a generic model used to define how a
-# paged resource should be represented in JSON format when
-# communicating between the client and the server. This is important for
-# defining how query results are transported, and alters how the "get many"
-# action is represented back to the client. Again, this is essentially
-# just a communications schema, but it should be maintained in your model
-# files as it necessarily leverages the "View" model as an embedded
-# component of data serialization. The "View" model in this case
-# representing each singleton record within the "get many" list.
-class UserPageResponse(CruddyGenericModel):
-    users: List[UserView]
-    meta: MetaObject
-
-    def __init__(self, data: List[T] = [], users=None, meta: MetaObject = MetaObject()):
-        super().__init__(
-            users=list(map(lambda x: UserView(**x._mapping), data))
-            if users == None
-            else users,
-            meta=meta,
-        )
