@@ -358,6 +358,8 @@ def ControllerCongifurator(
     controller: APIRouter = ...,
     repository: "AbstractRepository" = ...,
     id_type: Union[UUID, int] = int,
+    single_name: str = ...,
+    plural_name: str = ...,
     single_schema=ResponseSchema,
     many_schema=PageResponse,
     meta_schema=MetaObject,
@@ -378,9 +380,10 @@ def ControllerCongifurator(
         dependencies=assemblePolicies(policies_universal, policies_create),
     )
     async def create(data: create_model):
-        data = await repository.create(data=data)
+        the_thing = getattr(data, single_name)
+        result = await repository.create(data=the_thing)
         # Add error logic?
-        return single_schema(data=data)
+        return single_schema(data=result)
 
     @controller.patch(
         "/{id}",
@@ -389,9 +392,10 @@ def ControllerCongifurator(
         dependencies=assemblePolicies(policies_universal, policies_update),
     )
     async def update(id: id_type = Path(..., alias="id"), *, data: update_model):
-        data = await repository.update(id=id, data=data)
+        the_thing = getattr(data, single_name)
+        result = await repository.update(id=id, data=the_thing)
         # Add error logic?
-        return single_schema(data=data)
+        return single_schema(data=result)
 
     @controller.delete(
         "/{id}",
@@ -745,9 +749,13 @@ class Resource:
     _relations: Dict[str, RelationshipConfig] = {}
     _resource_path: str = "/example"
     _tags: List[str] = ["example"]
+    _create_schema: CruddyModel = None
+    _update_schema: CruddyModel = None
     _response_schema: CruddyModel = None
     _meta_schema: CruddyGenericModel = None
     _id_type: Union[UUID, int] = int
+    _model_name_single: str = None
+    _model_name_plural: str = None
     _on_resolution: Union[Callable, None] = None
     adapter: PostgresqlAdapter = None
     repository: AbstractRepository = None
@@ -782,6 +790,8 @@ class Resource:
         self._resource_path = path
         self._tags = tags
         self._response_schema = response_schema
+        self._update_schema = resource_update_model
+        self._create_schema = resource_create_model
         self._meta_schema = response_meta_schema
         self._id_type = id_type
         self._relations = {}
@@ -839,12 +849,21 @@ class Resource:
     # other response formats, like JSON API.
     # Alterations will also require ControllerConfigurator
     # to be modified somehow...
+
     def generate_response_schemas(self):
+        local_resource = self
         response_schema = self._response_schema
+        create_schema = self._create_schema
+        update_schema = self._update_schema
         response_meta_schema = self._meta_schema
         resource_model_name = f"{self.repository.model.__name__}".lower()
         resource_model_plural = pluralizer.plural(resource_model_name)
         resource_response_name = response_schema.__name__
+        resource_create_name = create_schema.__name__
+        resource_update_name = update_schema.__name__
+
+        self._model_name_single = resource_model_name
+        self._model_name_plural = resource_model_plural
 
         # Create shared link model
         link_object = {}
@@ -852,25 +871,38 @@ class Resource:
             link_object[k] = (str, ...)
         link_object["__base__"] = CruddyGenericModel
 
-        def link_builder(self=self, id: Union[UUID, int] = None):
-            str_id = f"{id}"
-            new_link_object = {}
-            for k, v in self._relations.items():
-                new_link_object[
-                    k
-                ] = f"{self._link_prefix}{self._resource_path}/{str_id}/{k}"
-            return new_link_object
-
         LinkModel = create_model(f"{resource_model_name}Links", **link_object)
         # End shared link model
 
-        # Redefine object views
+        # Create record envelope schema
+        SingleCreateEnvelope = create_model(
+            f"{resource_create_name}Envelope",
+            **{
+                resource_model_name: (create_schema, ...),
+                "__base__": CruddyGenericModel,
+            },
+        )
+        # End create record envelope schema
+
+        # Update record envelope schema
+        SingleUpdateEnvelope = create_model(
+            f"{resource_update_name}Envelope",
+            **{
+                resource_model_name: (update_schema, ...),
+                "__base__": CruddyGenericModel,
+            },
+        )
+        # End update record envelope schema
+
+        # Single record schema with embedded links
         SingleSchemaLinked = create_model(
             f"{resource_response_name}Linked",
             links=(Optional[LinkModel], None),
             __base__=response_schema,
         )
+        # End single record schema with embedded links
 
+        # Single record return payload (for get/{id})
         SingleSchemaEnvelope = create_model(
             f"{resource_response_name}Envelope",
             **{
@@ -879,8 +911,77 @@ class Resource:
             },
         )
 
+        handle_data_or_none = self._create_schema_arg_handler(
+            single_schema_linked=SingleSchemaLinked,
+            resource_model_name=resource_model_name,
+        )
         old_single_init = SingleSchemaEnvelope.__init__
 
+        def new_single_init(self, *args, **kwargs):
+            old_single_init(
+                self,
+                *args,
+                **handle_data_or_none(kwargs),
+            )
+
+        SingleSchemaEnvelope.__init__ = new_single_init
+        # End single record return payload
+
+        # Many records return payload (for get/ and queries with "where")
+        ManySchemaEnvelope = create_model(
+            f"{resource_response_name}List",
+            **{
+                resource_model_plural: (Optional[List[SingleSchemaLinked]], None),
+                "meta": (response_meta_schema, ...),
+                "__base__": CruddyGenericModel,
+            },
+        )
+
+        old_many_init = ManySchemaEnvelope.__init__
+
+        def new_many_init(self, *args, **kwargs):
+            old_many_init(
+                self,
+                *args,
+                **{
+                    resource_model_plural: list(
+                        map(
+                            lambda x: SingleSchemaLinked(
+                                **x._mapping,
+                                links=local_resource._link_builder(id=x._mapping["id"]),
+                            ),
+                            kwargs["data"],
+                        )
+                    )
+                    if resource_model_plural not in kwargs
+                    else kwargs[resource_model_plural],
+                    "data": kwargs["data"] if "data" in kwargs else [],
+                    "meta": kwargs["meta"],
+                },
+            )
+
+        ManySchemaEnvelope.__init__ = new_many_init
+        # End many records return payload
+
+        # Expose the following schemas for further use
+
+        self.schemas = {
+            "single": SingleSchemaEnvelope,
+            "many": ManySchemaEnvelope,
+            "create": SingleCreateEnvelope,
+            "update": SingleUpdateEnvelope,
+        }
+
+    def _link_builder(self, id: Union[UUID, int] = None):
+        str_id = f"{id}"
+        new_link_object = {}
+        for k, v in self._relations.items():
+            new_link_object[
+                k
+            ] = f"{self._link_prefix}{self._resource_path}/{str_id}/{k}"
+        return new_link_object
+
+    def _create_schema_arg_handler(self, single_schema_linked, resource_model_name):
         def data_destructure(data):
             if data == None:
                 return {}
@@ -908,68 +1009,27 @@ class Resource:
             thing_to_convert = data_destructure(args["data"])
             id = thing_to_convert["id"]
             return {
-                resource_model_name: SingleSchemaLinked(
+                resource_model_name: single_schema_linked(
                     **thing_to_convert,
-                    links=link_builder(id=id),
+                    links=self._link_builder(id=id),
                 ),
                 "data": None,
             }
 
-        def new_single_init(self, *args, **kwargs):
-            old_single_init(
-                self,
-                *args,
-                **handle_data_or_none(kwargs),
-            )
-
-        SingleSchemaEnvelope.__init__ = new_single_init
-
-        ManySchemaEnvelope = create_model(
-            f"{resource_response_name}List",
-            **{
-                resource_model_plural: (Optional[List[SingleSchemaLinked]], None),
-                "meta": (response_meta_schema, ...),
-                "__base__": CruddyGenericModel,
-            },
-        )
-
-        old_many_init = ManySchemaEnvelope.__init__
-
-        def new_many_init(self, *args, **kwargs):
-            old_many_init(
-                self,
-                *args,
-                **{
-                    resource_model_plural: list(
-                        map(
-                            lambda x: SingleSchemaLinked(
-                                **x._mapping, links=link_builder(id=x._mapping["id"])
-                            ),
-                            kwargs["data"],
-                        )
-                    )
-                    if resource_model_plural not in kwargs
-                    else kwargs[resource_model_plural],
-                    "data": kwargs["data"] if "data" in kwargs else [],
-                    "meta": kwargs["meta"],
-                },
-            )
-
-        ManySchemaEnvelope.__init__ = new_many_init
-        # End redefine object views
-
-        self.schemas = {"single": SingleSchemaEnvelope, "many": ManySchemaEnvelope}
+        return handle_data_or_none
 
     def resolve(self):
         self.controller = ControllerCongifurator(
             controller=self.controller,
             repository=self.repository,
             id_type=self._id_type,
+            single_name=self._model_name_single,
+            plural_name=self._model_name_plural,
+            create_model=self.schemas["create"],
+            update_model=self.schemas["update"],
             single_schema=self.schemas["single"],
             many_schema=self.schemas["many"],
             meta_schema=self._meta_schema,
-            update_model=self.repository.update_model,
-            create_model=self.repository.create_model,
             relations=self._relations,
             policies_universal=self.policies["universal"],
             policies_create=self.policies["create"],
