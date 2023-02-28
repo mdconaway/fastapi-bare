@@ -275,9 +275,11 @@ class ExampleCreate(ExampleUpdate):
     create_only_field: str
 
 
-class Example(
-    CruddyIntIDModel, ExampleCreate, table=False
-):  # Set table=True on your app's core models
+class ExampleView(CruddyIntIDModel, ExampleCreate):
+    pass
+
+
+class Example(ExampleView, table=False):  # Set table=True on your app's core models
     db_only_field: str
 
 
@@ -762,7 +764,7 @@ class Resource:
         link_prefix="",
         path="/example",
         tags=["example"],
-        response_schema=ResponseSchema,
+        response_schema=ExampleView,
         response_meta_schema=MetaObject,
         resource_update_model=ExampleUpdate,
         resource_create_model=ExampleCreate,
