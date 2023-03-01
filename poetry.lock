@@ -267,23 +267,19 @@ version = "0.0.1"
 description = "A holistic CRUD/MVC framework for FastAPI, with endpoint policies and relationships"
 category = "main"
 optional = false
-python-versions = "^3.10"
-files = []
-develop = false
+python-versions = ">=3.10,<4.0"
+files = [
+    {file = "fastapi_cruddy_framework-0.0.1-py3-none-any.whl", hash = "sha256:3566919285335b2634c93d9a4601a23851cfae1e0d522098500f78f3e3d66dc5"},
+    {file = "fastapi_cruddy_framework-0.0.1.tar.gz", hash = "sha256:781eeb3337e22c8e284d867c4997e517234199acf825b52e0ffa6ef536ba5502"},
+]
 
 [package.dependencies]
-fastapi = {version = "^0.92.0", extras = ["all"]}
-inflect = "^6.0.2"
-SQLAlchemy = "^1.4.40"
-SQLAlchemy-Utils = "^0.38.3"
-sqlmodel = "^0.0.8"
-uvicorn = "^0.20.0"
-
-[package.source]
-type = "git"
-url = "https://github.com/mdconaway/fastapi-cruddy-framework.git"
-reference = "HEAD"
-resolved_reference = "e91f658e947cfa929f77f4c3afc8405c7abe5dd8"
+fastapi = {version = ">=0.92.0,<0.93.0", extras = ["all"]}
+inflect = ">=6.0.2,<7.0.0"
+SQLAlchemy = ">=1.4.40,<2.0.0"
+SQLAlchemy-Utils = ">=0.38.3,<0.39.0"
+sqlmodel = ">=0.0.8,<0.0.9"
+uvicorn = ">=0.20.0,<0.21.0"
 
 [[package]]
 name = "greenlet"
@@ -1346,4 +1342,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "bd8447566f5ab9f5428423d743a34669ea80aed9a23343a55ace0ebbe663a545"
+content-hash = "e650d38505a12b9ef4568b2b035912b3050983d18e3bda3c6808a14a40e8229d"
