@@ -1,6 +1,6 @@
-import aioredis
+import redis as redis_
 from typing import Union
-from aioredis import Redis
+from redis import Redis
 from app.config import adapters
 
 
@@ -17,9 +17,9 @@ class RedisClient:
         self.REDIS_PORT = redis_port
         self.REDIS_MAX_CONNECTIONS = redis_max_connections
 
-    async def getClient(self):
+    def getClient(self):
         if not self.client:
-            self.client = await aioredis.from_url(
+            self.client = redis_.from_url(
                 f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}",
                 max_connections=self.REDIS_MAX_CONNECTIONS,
                 encoding="utf8",

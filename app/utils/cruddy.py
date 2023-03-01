@@ -480,6 +480,44 @@ def _ControllerConfigManyToMany(
         )
 
 
+def GetRelationships(
+    record: CruddyModel, relation_config_map: Dict[str, RelationshipConfig]
+):
+    record_relations = {}
+    for k, v in relation_config_map.items():
+        direction = v.orm_relationship.direction
+        if (
+            (direction == MANYTOMANY or direction == ONETOMANY)
+            and hasattr(record, k)
+            and getattr(record, k) != None
+        ):
+            record_relations[k] = getattr(record, k)
+    return record_relations
+
+
+async def SaveRelationships(
+    id: Union[UUID, int] = ...,
+    record: CruddyModel = ...,
+    relation_config_map: Dict[str, RelationshipConfig] = ...,
+    repository: "AbstractRepository" = ...,
+):
+    relationship_lists = GetRelationships(record, relation_config_map)
+    modified_records = 0
+    for k, v in relationship_lists.items():
+        name: str = k
+        new_relations: List[Union[UUID, int]] = v
+        config: RelationshipConfig = relation_config_map[name]
+        if config.orm_relationship.direction == MANYTOMANY:
+            modified_records += await repository.set_many_many_relations(
+                id=id, relation=name, relations=new_relations
+            )
+        elif config.orm_relationship.direction == ONETOMANY:
+            modified_records += await repository.set_one_many_relations(
+                id=id, relation=config, relations=new_relations
+            )
+    return modified_records
+
+
 def ControllerCongifurator(
     controller: APIRouter = ...,
     repository: "AbstractRepository" = ...,
@@ -490,7 +528,9 @@ def ControllerCongifurator(
     many_schema=PageResponse,
     meta_schema=MetaObject,
     update_model=ExampleUpdate,
+    update_model_proxy=ExampleUpdate,
     create_model=ExampleCreate,
+    create_model_proxy=ExampleCreate,
     relations: Dict[str, RelationshipConfig] = ...,
     policies_universal=[],
     policies_create=[],
@@ -506,8 +546,16 @@ def ControllerCongifurator(
         dependencies=assemblePolicies(policies_universal, policies_create),
     )
     async def create(data: create_model):
-        the_thing = getattr(data, single_name)
+        the_thing_with_rels = getattr(data, single_name)
+        the_thing = create_model_proxy(**the_thing_with_rels.dict())
         result = await repository.create(data=the_thing)
+        relations_modified = await SaveRelationships(
+            id=result.id,
+            record=the_thing_with_rels,
+            relation_config_map=relations,
+            repository=repository,
+        )
+        # print(f"modified {relations_modified} relationships")
         # Add error logic?
         return single_schema(data=result)
 
@@ -518,8 +566,16 @@ def ControllerCongifurator(
         dependencies=assemblePolicies(policies_universal, policies_update),
     )
     async def update(id: id_type = Path(..., alias="id"), *, data: update_model):
-        the_thing = getattr(data, single_name)
+        the_thing_with_rels = getattr(data, single_name)
+        the_thing = update_model_proxy(**the_thing_with_rels.dict())
         result = await repository.update(id=id, data=the_thing)
+        relations_modified = await SaveRelationships(
+            id=result.id,
+            record=the_thing_with_rels,
+            relation_config_map=relations,
+            repository=repository,
+        )
+        # print(f"modified {relations_modified} relationships")
         # Add error logic?
         return single_schema(data=result)
 
@@ -1096,13 +1152,14 @@ class Resource:
         pool_size=4,
         max_overflow=64,
         link_prefix="",
-        path="/example",
-        tags=["example"],
+        path: str = None,
+        tags: List[str] = None,
         response_schema=ExampleView,
         response_meta_schema=MetaObject,
         resource_update_model=ExampleUpdate,
         resource_create_model=ExampleCreate,
         resource_model: CruddyModel = Example,
+        protected_relationships: List[str] = [],
         id_type=int,
         policies_universal: List[Callable] = [],
         policies_create: List[Callable] = [],
@@ -1111,16 +1168,19 @@ class Resource:
         policies_get_one: List[Callable] = [],
         policies_get_many: List[Callable] = [],
     ):
+        possible_tag = f"{resource_model.__name__}".lower()
+        possible_path = f"/{pluralizer.plural(possible_tag)}"
         self._on_resolution = None
         self._link_prefix = link_prefix
-        self._resource_path = path
-        self._tags = tags
+        self._resource_path = possible_path if path == None else path
+        self._tags = [possible_tag] if tags == None else tags
         self._response_schema = response_schema
         self._update_schema = resource_update_model
         self._create_schema = resource_create_model
         self._meta_schema = response_meta_schema
         self._id_type = id_type
         self._relations = {}
+        self._protected_relationships = protected_relationships
 
         self.policies = {
             "universal": policies_universal,
@@ -1155,7 +1215,7 @@ class Resource:
     def inject_relationship(
         self, relationship: RelationshipProperty, foreign_resource: "Resource"
     ):
-        self._relations[relationship.key + ""] = RelationshipConfig(
+        self._relations[f"{relationship.key}"] = RelationshipConfig(
             orm_relationship=relationship, foreign_resource=foreign_resource
         )
 
@@ -1168,7 +1228,7 @@ class Resource:
     # Alterations will also require ControllerConfigurator
     # to be modified somehow...
 
-    def generate_response_schemas(self):
+    def generate_internal_schemas(self):
         local_resource = self
         response_schema = self._response_schema
         create_schema = self._create_schema
@@ -1185,29 +1245,43 @@ class Resource:
 
         # Create shared link model
         link_object = {}
+        false_attrs = {}
         for k, v in self._relations.items():
             link_object[k] = (str, ...)
+            if (
+                v.orm_relationship.direction == MANYTOMANY
+                or v.orm_relationship.direction == ONETOMANY
+            ) and k not in self._protected_relationships:
+                false_attrs[k] = (Optional[List[v.foreign_resource._id_type]], None)
         link_object["__base__"] = CruddyGenericModel
 
         LinkModel = create_model(f"{resource_model_name}Links", **link_object)
         # End shared link model
 
+        SingleCreateSchema = create_model(
+            f"{resource_create_name}Proxy", __base__=create_schema, **false_attrs
+        )
+
         # Create record envelope schema
         SingleCreateEnvelope = create_model(
             f"{resource_create_name}Envelope",
+            __base__=CruddyGenericModel,
             **{
-                resource_model_name: (create_schema, ...),
-                "__base__": CruddyGenericModel,
+                resource_model_name: (SingleCreateSchema, ...),
             },
         )
         # End create record envelope schema
 
+        SingleUpdateSchema = create_model(
+            f"{resource_update_name}Proxy", __base__=update_schema, **false_attrs
+        )
+
         # Update record envelope schema
         SingleUpdateEnvelope = create_model(
             f"{resource_update_name}Envelope",
+            __base__=CruddyGenericModel,
             **{
-                resource_model_name: (update_schema, ...),
-                "__base__": CruddyGenericModel,
+                resource_model_name: (SingleUpdateSchema, ...),
             },
         )
         # End update record envelope schema
@@ -1223,9 +1297,9 @@ class Resource:
         # Single record return payload (for get/{id})
         SingleSchemaEnvelope = create_model(
             f"{resource_response_name}Envelope",
+            __base__=CruddyGenericModel,
             **{
                 resource_model_name: (Optional[Union[SingleSchemaLinked, None]], None),
-                "__base__": CruddyGenericModel,
             },
         )
 
@@ -1248,11 +1322,11 @@ class Resource:
         # Many records return payload (for get/ and queries with "where")
         ManySchemaEnvelope = create_model(
             f"{resource_response_name}List",
+            __base__=CruddyGenericModel,
             **{
                 resource_model_plural: (Optional[List[SingleSchemaLinked]], None),
-                "meta": (response_meta_schema, ...),
-                "__base__": CruddyGenericModel,
             },
+            meta=(response_meta_schema, ...),
         )
 
         old_many_init = ManySchemaEnvelope.__init__
@@ -1287,7 +1361,9 @@ class Resource:
             "single": SingleSchemaEnvelope,
             "many": ManySchemaEnvelope,
             "create": SingleCreateEnvelope,
+            "create_relations": SingleCreateSchema,
             "update": SingleUpdateEnvelope,
+            "update_relations": SingleUpdateSchema,
         }
 
     def _link_builder(self, id: Union[UUID, int] = None):
@@ -1344,7 +1420,9 @@ class Resource:
             single_name=self._model_name_single,
             plural_name=self._model_name_plural,
             create_model=self.schemas["create"],
+            create_model_proxy=self._create_schema,
             update_model=self.schemas["update"],
+            update_model_proxy=self._update_schema,
             single_schema=self.schemas["single"],
             many_schema=self.schemas["many"],
             meta_schema=self._meta_schema,
@@ -1428,7 +1506,7 @@ class ResourceRegistry:
                 )
 
             self._rels_via_models[map_name] = rel_map
-            resource.generate_response_schemas()
+            resource.generate_internal_schemas()
 
         # Build routes
         # These have to be separated to ensure all schemas are ready

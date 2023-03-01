@@ -12,8 +12,6 @@ from app.policies.verify_session import verify_session
 
 resource = Resource(
     adapter=postgresql,
-    path="/posts",
-    tags=["post"],
     response_schema=PostView,
     response_meta_schema=MetaObject,
     resource_update_model=PostUpdate,

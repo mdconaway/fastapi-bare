@@ -12,8 +12,6 @@ from app.policies.verify_session import verify_session
 
 resource = Resource(
     adapter=postgresql,
-    path="/groups",
-    tags=["group"],
     response_schema=GroupView,
     response_meta_schema=MetaObject,
     resource_update_model=GroupUpdate,

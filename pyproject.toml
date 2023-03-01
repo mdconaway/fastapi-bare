@@ -20,7 +20,7 @@ extend-exclude = '''
 
 [tool.poetry.dependencies]
 python = "^3.8"
-fastapi = {extras = ["all"], version = "^0.89.1"}
+fastapi = {extras = ["all"], version = "^0.92.0"}
 uvicorn = "^0.20.0"
 alembic = "^1.9.2"
 SQLAlchemy-Utils = "^0.38.3"
@@ -28,9 +28,9 @@ SQLAlchemy = "^1.4.40"
 sqlmodel = "^0.0.8"
 asyncpg = "^0.27.0"
 fastapi-async-sqlalchemy = "^0.3.12"
-aioredis = "^2.0.1"
 starlette-session = "^0.4.3"
 inflect = "^6.0.2"
+redis = "^4.5.1"
 
 [tool.poetry.dev-dependencies]
 black = "^22.12.0"

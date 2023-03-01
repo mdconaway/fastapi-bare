@@ -12,13 +12,12 @@ from app.policies.verify_session import verify_session
 
 resource = Resource(
     adapter=postgresql,
-    path="/users",
-    tags=["user"],
     response_schema=UserView,
     response_meta_schema=MetaObject,
     resource_update_model=UserUpdate,
     resource_create_model=UserCreate,
     resource_model=User,
+    protected_relationships=["posts"],
     id_type=UUID,
     policies_universal=[verify_session],
 )
