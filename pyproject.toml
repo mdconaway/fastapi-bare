@@ -31,7 +31,7 @@ fastapi-async-sqlalchemy = "^0.3.12"
 starlette-session = "^0.4.3"
 inflect = "^6.0.2"
 redis = "^4.5.1"
-fastapi-cruddy-framework = "^0.0.1"
+fastapi-cruddy-framework = "^0.0.2"
 
 [tool.poetry.dev-dependencies]
 black = "^22.12.0"

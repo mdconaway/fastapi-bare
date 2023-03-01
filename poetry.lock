@@ -263,14 +263,14 @@ starlette = ">=0.13.6"
 
 [[package]]
 name = "fastapi-cruddy-framework"
-version = "0.0.1"
+version = "0.0.2"
 description = "A holistic CRUD/MVC framework for FastAPI, with endpoint policies and relationships"
 category = "main"
 optional = false
 python-versions = ">=3.10,<4.0"
 files = [
-    {file = "fastapi_cruddy_framework-0.0.1-py3-none-any.whl", hash = "sha256:3566919285335b2634c93d9a4601a23851cfae1e0d522098500f78f3e3d66dc5"},
-    {file = "fastapi_cruddy_framework-0.0.1.tar.gz", hash = "sha256:781eeb3337e22c8e284d867c4997e517234199acf825b52e0ffa6ef536ba5502"},
+    {file = "fastapi_cruddy_framework-0.0.2-py3-none-any.whl", hash = "sha256:494256d1bbe1aec57bc592fccfa51cb8640b65ae37f2c3b12aebd2962fc5ece9"},
+    {file = "fastapi_cruddy_framework-0.0.2.tar.gz", hash = "sha256:96cf47ef3c116a9a5800080106f60490a799f5708ad53490699be51862af3dbd"},
 ]
 
 [package.dependencies]
@@ -1342,4 +1342,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "e650d38505a12b9ef4568b2b035912b3050983d18e3bda3c6808a14a40e8229d"
+content-hash = "8e38d27e58c4f29b9555d672f976354c0d31e8258e21fb9fe5664d5070a64b65"
