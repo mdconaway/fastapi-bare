@@ -21,8 +21,8 @@ from sqlalchemy import (
     func,
     column,
 )
-from sqlalchemy.sql import select
-from sqlalchemy.sql.schema import Column, ForeignKey
+from sqlalchemy.sql import select, update
+from sqlalchemy.sql.schema import Table, Column, ForeignKey
 from sqlalchemy.orm import (
     sessionmaker,
     declared_attr,
@@ -350,8 +350,134 @@ def _ControllerConfigManyToOne(
         if len(result.data) != 0:
             data = result.data[0]
 
-        # Invoke the dynamically built
+        # Invoke the dynamically built model
         return config.foreign_resource.schemas["single"](data=data)
+
+
+def _ControllerConfigOneToMany(
+    controller: APIRouter = ...,
+    repository: "AbstractRepository" = ...,
+    id_type: Union[UUID, int] = ...,
+    relationship_prop: str = ...,
+    config: RelationshipConfig = ...,
+    meta_schema=MetaObject,
+    policies_universal: List = ...,
+    policies_get_one: List = ...,
+):
+    far_col: Column = next(iter(config.orm_relationship.remote_side))
+    col: Column = next(iter(config.orm_relationship.local_columns))
+    far_col_name = far_col.name
+    near_col_name = col.name
+
+    # Merge three policy sets onto this endpoint:
+    # 1. Universal policies
+    # 2. Primary resource policies
+    # 3. Related resource policies
+    @controller.get(
+        f'/{"{id}"}/{relationship_prop}',
+        response_model=config.foreign_resource.schemas["many"],
+        response_model_exclude_none=True,
+        dependencies=assemblePolicies(
+            policies_universal,
+            policies_get_one,
+            config.foreign_resource.policies["get_many"],
+        ),
+    )
+    async def get_one_to_many(
+        id: id_type = Path(..., alias="id"),
+        page: int = 1,
+        limit: int = 10,
+        columns: List[str] = Query(None, alias="columns"),
+        sort: List[str] = Query(None, alias="sort"),
+        where: Json = Query(None, alias="where"),
+    ):
+        origin_record = await repository.get_by_id(id=id)
+
+        # Consider raising 404 here and in get by ID
+        if origin_record == None:
+            return config.foreign_resource.schemas["many"](
+                data=None,
+                meta=meta_schema(**{"page": 0, "limit": 0, "pages": 0, "records": 0}),
+            )
+
+        # Build a query to use foreign resource to find related objects
+        additional_where = {far_col_name: {"*eq": origin_record.dict()[near_col_name]}}
+        if where != None:
+            where = {"*and": [additional_where, where]}
+        else:
+            where = additional_where
+
+        # Collect the bulk data transfer object from the query
+        result: BulkDTO = await config.foreign_resource.repository.get_all(
+            page=page, limit=limit, columns=columns, sort=sort, where=where
+        )
+        meta = {
+            "page": page,
+            "limit": limit,
+            "pages": result.total_pages,
+            "records": result.total_records,
+        }
+        return config.foreign_resource.schemas["many"](
+            meta=meta_schema(**meta),
+            data=result.data,
+        )
+
+
+def _ControllerConfigManyToMany(
+    controller: APIRouter = ...,
+    repository: "AbstractRepository" = ...,
+    id_type: Union[UUID, int] = ...,
+    relationship_prop: str = ...,
+    config: RelationshipConfig = ...,
+    meta_schema=MetaObject,
+    policies_universal: List = ...,
+    policies_get_one: List = ...,
+):
+    far_model: CruddyModel = config.foreign_resource.repository.model
+
+    # Merge three policy sets onto this endpoint:
+    # 1. Universal policies
+    # 2. Primary resource policies
+    # 3. Related resource policies
+    @controller.get(
+        f'/{"{id}"}/{relationship_prop}',
+        response_model=config.foreign_resource.schemas["many"],
+        response_model_exclude_none=True,
+        dependencies=assemblePolicies(
+            policies_universal,
+            policies_get_one,
+            config.foreign_resource.policies["get_many"],
+        ),
+    )
+    async def get_many_to_many(
+        id: id_type = Path(..., alias="id"),
+        page: int = 1,
+        limit: int = 10,
+        columns: List[str] = Query(None, alias="columns"),
+        sort: List[str] = Query(None, alias="sort"),
+        where: Json = Query(None, alias="where"),
+    ):
+        # Collect the bulk data transfer object from the query
+        result: BulkDTO = await repository.get_all_relations(
+            id=id,
+            relation=relationship_prop,
+            relation_model=far_model,
+            page=page,
+            limit=limit,
+            columns=columns,
+            sort=sort,
+            where=where,
+        )
+        meta = {
+            "page": page,
+            "limit": limit,
+            "pages": result.total_pages,
+            "records": result.total_records,
+        }
+        return config.foreign_resource.schemas["many"](
+            meta=meta_schema(**meta),
+            data=result.data,
+        )
 
 
 def ControllerCongifurator(
@@ -451,10 +577,28 @@ def ControllerCongifurator(
 
     for key, config in relations.items():
         if config.orm_relationship.direction == ONETOMANY:
-            print("To Implement: One to Many")
+            _ControllerConfigOneToMany(
+                controller=controller,
+                repository=repository,
+                id_type=id_type,
+                relationship_prop=key,
+                config=config,
+                meta_schema=meta_schema,
+                policies_universal=policies_universal,
+                policies_get_one=policies_get_one,
+            )
         elif config.orm_relationship.direction == MANYTOMANY:
-            print("To Implement: Many to Many")
-            print("To Implement: Many to Many Through Association Object")
+            _ControllerConfigManyToMany(
+                controller=controller,
+                repository=repository,
+                id_type=id_type,
+                relationship_prop=key,
+                config=config,
+                meta_schema=meta_schema,
+                policies_universal=policies_universal,
+                policies_get_one=policies_get_one,
+            )
+            # print("To Implement: Many to Many Through Association Object")
         elif config.orm_relationship.direction == MANYTOONE:
             _ControllerConfigManyToOne(
                 controller=controller,
@@ -505,7 +649,6 @@ class AbstractRepository:
 
     async def create(self, data: CruddyModel):
         # create user data
-        # print(data)
         async with self.adapter.getSession() as session:
             record = self.model(**data.dict())
             session.add(record)
@@ -568,22 +711,6 @@ class AbstractRepository:
         )
         query = select(from_obj=self.model, columns=select_columns)
 
-        # build an arbitrarily deep query with a JSON dictionary
-        # a query object is a JSON object that generally looks like
-        # all boolean operators, or field level operators, begin with a
-        # * character. This will nearly always translate down to the sqlalchemy
-        # level, where it is up to the model class to determine what operations
-        # are possible on each model attribute.
-        # The top level query object is an implicit AND.
-        # To do an OR, the base key of the search must be *or, as below examples:
-        # {"*or":{"first_name":"bilbo","last_name":"baggins"}}
-        # {"*or":{"first_name":{"*contains":"bilbo"},"last_name":"baggins"}}
-        # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":{"email":{"*contains":"@"},"first_name":{"*contains":"helga"}}}}
-        # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":[{"email":{"*contains":"@"}},{"email":{"*contains":"helga"}}]}}
-        # The following query would be an implicit *and:
-        # [{"first_name":{"*endswith":"bilbo"}},{"last_name":"baggins"}]
-        # As would the following query:
-        # {"first_name":{"*endswith":"bilbo"},"last_name":"baggins"}
         if isinstance(where, dict) or isinstance(where, list):
             query = query.filter(and_(*self.query_forge(model=self.model, where=where)))
 
@@ -618,12 +745,210 @@ class AbstractRepository:
         total_page = math.ceil(total_record / limit)
         return BulkDTO(total_pages=total_page, total_records=total_record, data=result)
 
+    async def get_all_relations(
+        self,
+        id: Union[UUID, int] = ...,
+        relation: str = ...,
+        relation_model: CruddyModel = ...,
+        page: int = 1,
+        limit: int = 10,
+        columns: List[str] = None,
+        sort: List[str] = None,
+        where: Json = None,
+    ):
+        # The related id column is mandatory or the join will explode
+        if columns is None or len(columns) == 0:
+            select_columns = list(
+                map(
+                    lambda x: getattr(relation_model, x),
+                    relation_model.__fields__.keys(),
+                )
+            )
+        else:
+            # Add logic for non "id" primary key??
+            if "id" not in columns:
+                columns.append("id")
+            select_columns = list(map(lambda x: getattr(relation_model, x), columns))
+
+        query = select(from_obj=self.model, columns=select_columns)
+
+        query = query.join(getattr(self.model, relation))
+
+        # Add logic for non "id" primary key??
+        joinable = [self.model.id == id]
+
+        if isinstance(where, dict) or isinstance(where, list):
+            joinable.append(*self.query_forge(model=relation_model, where=where))
+        query = query.filter(and_(*joinable))
+
+        # select sort dynamically
+        if sort is not None and sort != []:
+            # we need sort format data like this --> ['id asc','name desc', 'email']
+            def splitter(sort_string: str):
+                parts = sort_string.split(" ")
+                getter = "asc"
+                if len(parts) == 2:
+                    getter = parts[1]
+                return getattr(getattr(relation_model, parts[0]), getter)
+
+            sorts = list(map(splitter, sort))
+            for field in sorts:
+                query = query.order_by(field())
+
+        # count query
+        count_query = select(func.count(1)).select_from(query)
+        offset_page = page - 1
+        # pagination
+        query = query.offset(offset_page * limit).limit(limit)
+        # total record
+
+        async with self.adapter.getSession() as session:
+            total_record = (await session.execute(count_query)).scalar() or 0
+            # result
+            result = (await session.execute(query)).fetchall()
+
+        # possible pass in outside functions to map/alter data?
+        # total page
+        total_page = math.ceil(total_record / limit)
+        return BulkDTO(total_pages=total_page, total_records=total_record, data=result)
+
+    # This one is rather "alchemy" because join tables aren't resources
+    async def set_many_many_relations(
+        self,
+        id: Union[UUID, int],
+        relation: str = ...,
+        relations: List[Union[UUID, int]] = ...,
+    ):
+        model_relation: RelationshipProperty = getattr(
+            inspect(self.model).relationships, relation
+        )
+        pairs = list(model_relation.local_remote_pairs)
+        # origin_table: Table = None
+        # origin_key: str = None
+        join_table: Table = None
+        join_table_origin_attr: str = None
+        join_table_foreign_attr: str = None
+        join_table_foreign: Table = None
+        foreign_table: Table = None
+        foreign_key: str = None
+        for v in pairs:
+            local: Column = v[0]
+            remote: Column = v[1]
+            if local.table.name == self.model.__tablename__:
+                join_table = remote.table
+                join_table_origin_attr = remote.key
+                # origin_table = local.table
+                # origin_key = local.key
+                # This is the link from our origin model to the join table
+
+            else:
+                join_table_foreign_attr = remote.key
+                join_table_foreign = remote.table
+                foreign_table = local.table
+                foreign_key = local.key
+                # This is the link from the join table to the related model
+
+        if join_table.name != join_table_foreign.name:
+            raise TypeError("Relationship many to many tables are not the same type!")
+
+        validation_target_col: Column = getattr(foreign_table.columns, foreign_key)
+        # origin_id_col: Column = getattr(origin_table.columns, origin_key)
+        join_origin_col: Column = getattr(join_table.columns, join_table_origin_attr)
+        join_foreign_col: Column = getattr(join_table.columns, join_table_foreign_attr)
+        # validate_origin_id = select(from_obj=origin_table, columns=[origin_id_col]).where(origin_id_col == id)
+        validate_relation_ids = select(
+            from_obj=foreign_table, columns=[validation_target_col]
+        ).where(validation_target_col.in_(relations))
+        clear_relations_query = (
+            join_table.delete()
+            .where(join_origin_col == id)
+            .execution_options(synchronize_session="fetch")
+        )
+
+        async with self.adapter.getSession() as session:
+            # origin_id = (await session.execute(validate_origin_id)).scalar_one_or_none()
+            db_ids = (await session.execute(validate_relation_ids)).fetchall()
+            insertable = list(
+                map(
+                    lambda x: {
+                        join_table_origin_attr: id,
+                        join_table_foreign_attr: f"{x._mapping[foreign_key]}",
+                    },
+                    db_ids,
+                )
+            )
+            create_relations_query = (
+                join_table.insert().values(insertable).returning(join_foreign_col)
+            )
+            await session.execute(clear_relations_query)
+            if len(insertable) > 0:
+                result = (await session.execute(create_relations_query)).rowcount
+            else:
+                result = 0
+
+        return result
+
+    # There should probably be a configuration flag to disable this form of unsafe relationship update
+    async def set_one_many_relations(
+        self,
+        id: Union[UUID, int],
+        relation: RelationshipConfig = ...,
+        relations: List[Union[UUID, int]] = ...,
+    ):
+        related_model = relation.foreign_resource.repository.model
+        related_model_id: Column = getattr(related_model, "id")
+        far_col: Column = next(iter(relation.orm_relationship.remote_side))
+        far_col_name = far_col.name
+
+        clear_query = (
+            update(table=related_model)
+            .values({far_col_name: None})
+            .where(far_col.in_([id]))
+        )
+        alter_query = (
+            update(table=related_model)
+            .values({far_col_name: id})
+            .where(related_model_id.in_(relations))
+            .returning(related_model_id)
+        )
+
+        async with self.adapter.getSession() as session:
+            if far_col.nullable:
+                await session.execute(clear_query)
+            else:
+                print(
+                    f"Unable to clear relations for {related_model.__name__}.{far_col_name}. Column does not allow null values"
+                )
+            alter_result = (await session.execute(alter_query)).rowcount
+
+        return alter_result
+
     # Initial, simple, query forge. Invalid attrs or ops are just dropped.
     # Improvements to make:
     # 1. Table joins for relationships.
     # 2. Make relationships searchable too!
     # 3. Maybe throw an error if a bad search field is sent? (Will help UI devs)
-    def query_forge(self, model: CruddyModel, where: Union[Dict, List[Dict]]):
+    # build an arbitrarily deep query with a JSON dictionary
+    # a query object is a JSON object that generally looks like
+    # all boolean operators, or field level operators, begin with a
+    # * character. This will nearly always translate down to the sqlalchemy
+    # level, where it is up to the model class to determine what operations
+    # are possible on each model attribute.
+    # The top level query object is an implicit AND.
+    # To do an OR, the base key of the search must be *or, as below examples:
+    # {"*or":{"first_name":"bilbo","last_name":"baggins"}}
+    # {"*or":{"first_name":{"*contains":"bilbo"},"last_name":"baggins"}}
+    # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":{"email":{"*contains":"@"},"first_name":{"*contains":"helga"}}}}
+    # {"*or":{"first_name":{"*endswith":"bilbo"},"last_name":"baggins","*and":[{"email":{"*contains":"@"}},{"email":{"*contains":"helga"}}]}}
+    # The following query would be an implicit *and:
+    # [{"first_name":{"*endswith":"bilbo"}},{"last_name":"baggins"}]
+    # As would the following query:
+    # {"first_name":{"*endswith":"bilbo"},"last_name":"baggins"}
+    def query_forge(
+        self,
+        model: Union[CruddyModel, RelationshipProperty],
+        where: Union[Dict, List[Dict]],
+    ):
         level_criteria = []
         if not (isinstance(where, list) or isinstance(where, dict)):
             return []
@@ -667,6 +992,7 @@ class AbstractRepository:
                     elif k2 == "*lte":
                         level_criteria.append(mattr <= v2)
                     elif hasattr(mattr, k2.replace("*", "")):
+                        # Probably need to add an "accepted" list of query action keys
                         level_criteria.append(getattr(mattr, k2.replace("*", ""))(v2))
         return level_criteria
 
@@ -832,14 +1158,6 @@ class Resource:
         self._relations[relationship.key + ""] = RelationshipConfig(
             orm_relationship=relationship, foreign_resource=foreign_resource
         )
-        # print(relationship, foreign_resource)
-        # print(relationship.key)
-        # print(relationship.direction.name)
-        # print(relationship.local_columns)
-        # print(relationship.local_remote_pairs)
-        # print(relationship.remote_side)
-        # print(relationship._reverse_property)
-        # print(dir(relationship))
 
     def set_local_link_prefix(self, prefix: str):
         self._link_prefix = prefix
@@ -1082,7 +1400,6 @@ class ResourceRegistry:
         if self._resolver_invoked == False:
             loop.call_soon_threadsafe(self.resolve)
         self._resolver_invoked = True
-        # print('resolved?')
 
     # This method can't be invoked until SQL Alchemy is done lazily
     # building the ORM class mappers. Until that action is complete,
@@ -1100,7 +1417,7 @@ class ResourceRegistry:
             # Inspect the fully loaded model class for relationships
             relationships = inspect(base_model).relationships
             rel_map = {}
-            # print(map_name)
+
             for relation in relationships:
                 rel_map[relation.key] = relation
                 # this seems unsafe...
@@ -1109,6 +1426,7 @@ class ResourceRegistry:
                 resource.inject_relationship(
                     relationship=relation, foreign_resource=target_resource
                 )
+
             self._rels_via_models[map_name] = rel_map
             resource.generate_response_schemas()
 

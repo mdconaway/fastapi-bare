@@ -1,13 +1,11 @@
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
-from sqlmodel import Field, Relationship, Column, DateTime
-from pydantic import EmailStr
+from sqlmodel import Relationship
 from app.utils.cruddy import UUID, CruddyModel, CruddyUUIDModel
 from app.models.common.relationships import GroupUserLink
 
 if TYPE_CHECKING:
-    from app.models.post import Post
-    from app.models.group import Group
+    from app.models.user import User
 
 # The way the CRUD Router works, it needs an update, create, and base model.
 # If you always structure model files in this order, you can extend from the
@@ -20,28 +18,15 @@ if TYPE_CHECKING:
 # The "Update" model variant describes all fields that can be affected by a
 # client's PATCH action. Generally, the update model should have the fewest
 # number of available fields for a client to manipulate.
-class UserUpdate(CruddyModel):
-    first_name: str
-    last_name: str
-    email: EmailStr = Field(
-        nullable=True, index=True, sa_column_kwargs={"unique": True}
-    )
-    is_active: bool = Field(default=True)
-    is_superuser: bool = Field(default=False)
-    birthdate: Optional[datetime] = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=True)
-    )  # birthday with timezone
-    phone: Optional[str]
-    state: Optional[str]
-    country: Optional[str]
-    address: Optional[str]
+class GroupUpdate(CruddyModel):
+    name: str
 
 
 # The "Create" model variant expands on the update model, above, and adds
 # any new fields that may be writeable only the first time a record is
 # generated. This allows the POST action to accept update-able fields, as
 # well as one-time writeable fields.
-class UserCreate(UserUpdate):
+class GroupCreate(GroupUpdate):
     pass
 
 
@@ -52,18 +37,9 @@ class UserCreate(UserUpdate):
 # fields. This should be used when defining single responses and paged
 # responses, as in the schemas below. To support column clipping, all
 # fields need to be optional.
-class UserView(CruddyUUIDModel):
+class GroupView(CruddyUUIDModel):
     id: Optional[UUID]
-    first_name: Optional[str]
-    last_name: Optional[str]
-    email: Optional[EmailStr]
-    is_active: Optional[bool]
-    is_superuser: Optional[bool]
-    birthdate: Optional[datetime]
-    phone: Optional[str]
-    state: Optional[str]
-    country: Optional[str]
-    address: Optional[str]
+    name: Optional[str]
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -73,9 +49,8 @@ class UserView(CruddyUUIDModel):
 # in JSON representations, as it may contain hidden fields like passwords
 # or other server-internal state or tracking information. Keep your "Base"
 # models separated from all other interactive derivations.
-class User(CruddyUUIDModel, UserCreate, table=True):
-    hashed_password: Optional[str] = Field(nullable=False, index=True)
-    posts: List["Post"] = Relationship(back_populates="user")
-    groups: List["Group"] = Relationship(
-        back_populates="users", link_model=GroupUserLink
+class Group(CruddyUUIDModel, GroupCreate, table=True):
+    # is the below needed??
+    users: List["User"] = Relationship(
+        back_populates="groups", link_model=GroupUserLink
     )
