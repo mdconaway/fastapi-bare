@@ -27,7 +27,7 @@ from sqlalchemy.orm import (
     sessionmaker,
     declared_attr,
     RelationshipProperty,
-    selectinload,
+    # selectinload,
     ONETOMANY,
     MANYTOMANY,
     MANYTOONE,
@@ -37,8 +37,8 @@ from contextlib import asynccontextmanager
 from sqlmodel import text, inspect
 from sqlmodel.ext.asyncio.session import AsyncSession
 from types import ModuleType
-from typing import Any, Union, TypeVar, Optional, Generic, List, Dict, Callable
-from pydantic import create_model, AnyUrl, DirectoryPath
+from typing import Union, TypeVar, Optional, Generic, List, Dict, Callable  # , Any
+from pydantic import create_model
 from pydantic.generics import GenericModel
 from pydantic.types import Json
 from sqlmodel import Field, SQLModel
@@ -1434,6 +1434,9 @@ class ResourceRegistry:
         # These have to be separated to ensure all schemas are ready
         for resource in self._resources:
             resource.resolve()
+
+        # Clear this debouncer so any future dynamic resources can try to resolve
+        self._resolver_invoked = False
 
 
 CruddyResourceRegistry = ResourceRegistry()
