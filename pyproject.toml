@@ -19,7 +19,7 @@ extend-exclude = '''
 '''
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.10"
 fastapi = {extras = ["all"], version = "^0.92.0"}
 uvicorn = "^0.20.0"
 alembic = "^1.9.2"
@@ -31,6 +31,7 @@ fastapi-async-sqlalchemy = "^0.3.12"
 starlette-session = "^0.4.3"
 inflect = "^6.0.2"
 redis = "^4.5.1"
+fastapi-cruddy-framework = {git = "https://github.com/mdconaway/fastapi-cruddy-framework.git"}
 
 [tool.poetry.dev-dependencies]
 black = "^22.12.0"

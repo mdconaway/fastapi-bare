@@ -1,5 +1,5 @@
 import app
-from app.utils.cruddy import CreateRouterFromResources
+from fastapi_cruddy_framework import CreateRouterFromResources
 from fastapi import APIRouter
 
 # Users can override expected default object each resource module exports

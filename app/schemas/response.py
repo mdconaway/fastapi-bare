@@ -1,4 +1,4 @@
-from app.utils.cruddy import CruddyGenericModel
+from fastapi_cruddy_framework import CruddyGenericModel
 
 # This is an example of how to "remap" the metadata in a paged response.
 # The inputs in the first "init" are fixed, based on what CRUDDY returns,

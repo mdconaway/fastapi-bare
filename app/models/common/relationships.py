@@ -1,6 +1,6 @@
 from typing import Optional
 from sqlmodel import Field
-from app.utils.cruddy import UUID, CruddyModel
+from fastapi_cruddy_framework import UUID, CruddyModel
 
 
 # Many to many relationships require a manually defined "link" model.

@@ -1,4 +1,4 @@
-from app.utils.cruddy import Resource, UUID
+from fastapi_cruddy_framework import Resource, UUID
 from app.adapters import postgresql
 from app.models.group import (
     Group,

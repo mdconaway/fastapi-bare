@@ -1,7 +1,7 @@
 from typing import Optional, TYPE_CHECKING
 from datetime import datetime
 from sqlmodel import Field, Relationship
-from app.utils.cruddy import UUID, CruddyModel, CruddyUUIDModel
+from fastapi_cruddy_framework import UUID, CruddyModel, CruddyUUIDModel
 
 if TYPE_CHECKING:
     from app.models.user import User

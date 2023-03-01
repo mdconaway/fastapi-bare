@@ -6,7 +6,7 @@ from sqlmodel import SQLModel, create_engine
 from sqlmodel.ext.asyncio.session import AsyncEngine
 from alembic import context
 from app.config import adapters
-from app.utils.cruddy import getDirectoryModules
+from fastapi_cruddy_framework import getDirectoryModules
 import sys
 import pathlib
 

@@ -2,7 +2,7 @@ from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 from sqlmodel import Field, Relationship, Column, DateTime
 from pydantic import EmailStr
-from app.utils.cruddy import UUID, CruddyModel, CruddyUUIDModel
+from fastapi_cruddy_framework import UUID, CruddyModel, CruddyUUIDModel
 from app.models.common.relationships import GroupUserLink
 
 if TYPE_CHECKING:

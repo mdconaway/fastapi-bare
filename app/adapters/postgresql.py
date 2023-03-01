@@ -1,5 +1,5 @@
 from app.config import adapters
-from app.utils.cruddy import PostgresqlAdapter
+from fastapi_cruddy_framework import PostgresqlAdapter
 
 postgresql = PostgresqlAdapter(
     connection_uri=adapters.DATABASE_URI,

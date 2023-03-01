@@ -1,7 +1,7 @@
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 from sqlmodel import Relationship
-from app.utils.cruddy import UUID, CruddyModel, CruddyUUIDModel
+from fastapi_cruddy_framework import UUID, CruddyModel, CruddyUUIDModel
 from app.models.common.relationships import GroupUserLink
 
 if TYPE_CHECKING:
