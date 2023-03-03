@@ -8,6 +8,7 @@ from app.models.user import (
 )
 from app.schemas.response import MetaObject
 from app.policies.verify_session import verify_session
+from app.policies.hash_user_password import hash_user_password
 
 
 resource = Resource(
@@ -20,4 +21,5 @@ resource = Resource(
     protected_relationships=["posts"],
     id_type=UUID,
     policies_universal=[verify_session],
+    policies_create=[hash_user_password],
 )

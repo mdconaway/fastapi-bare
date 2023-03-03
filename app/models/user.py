@@ -42,7 +42,7 @@ class UserUpdate(CruddyModel):
 # generated. This allows the POST action to accept update-able fields, as
 # well as one-time writeable fields.
 class UserCreate(UserUpdate):
-    pass
+    password: str
 
 
 # The "View" model describes all fields that should typcially be present
@@ -74,7 +74,7 @@ class UserView(CruddyUUIDModel):
 # or other server-internal state or tracking information. Keep your "Base"
 # models separated from all other interactive derivations.
 class User(CruddyUUIDModel, UserCreate, table=True):
-    hashed_password: Optional[str] = Field(nullable=False, index=True)
+    password: Optional[str] = Field(nullable=False, index=True)
     posts: List["Post"] = Relationship(back_populates="user")
     groups: List["Group"] = Relationship(
         back_populates="users", link_model=GroupUserLink

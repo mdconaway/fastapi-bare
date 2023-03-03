@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 81dc83345644
+Revision ID: 1a443f21334d
 Revises: 
-Create Date: 2023-03-01 02:53:47.822647
+Create Date: 2023-03-03 18:46:30.192605
 
 """
 from alembic import op
@@ -12,7 +12,7 @@ import sqlmodel # added
 
 
 # revision identifiers, used by Alembic.
-revision = '81dc83345644'
+revision = '1a443f21334d'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -39,15 +39,15 @@ def upgrade():
     sa.Column('state', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('country', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('address', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('password', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('id', sqlmodel.sql.sqltypes.GUID(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
-    sa.Column('hashed_password', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_User_email'), 'User', ['email'], unique=True)
-    op.create_index(op.f('ix_User_hashed_password'), 'User', ['hashed_password'], unique=False)
     op.create_index(op.f('ix_User_id'), 'User', ['id'], unique=False)
+    op.create_index(op.f('ix_User_password'), 'User', ['password'], unique=False)
     op.create_table('GroupUserLink',
     sa.Column('user_id', sqlmodel.sql.sqltypes.GUID(), nullable=False),
     sa.Column('group_id', sqlmodel.sql.sqltypes.GUID(), nullable=False),
@@ -73,8 +73,8 @@ def downgrade():
     op.drop_index(op.f('ix_Post_id'), table_name='Post')
     op.drop_table('Post')
     op.drop_table('GroupUserLink')
+    op.drop_index(op.f('ix_User_password'), table_name='User')
     op.drop_index(op.f('ix_User_id'), table_name='User')
-    op.drop_index(op.f('ix_User_hashed_password'), table_name='User')
     op.drop_index(op.f('ix_User_email'), table_name='User')
     op.drop_table('User')
     op.drop_index(op.f('ix_Group_id'), table_name='Group')
